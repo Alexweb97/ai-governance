@@ -290,6 +290,11 @@ def _sanitize_type(t: str) -> str:
 
 
 def _resolve_overlaps(spans: list[Span]) -> list[Span]:
+    # Un secret trouvé par regex n'est jamais absorbé par une entité NER plus longue (qui le
+    # typerait LOCATION et le rendrait aux outils Bash/MCP au lieu de le garder masqué).
+    secrets = [s for s in spans if s.source == "regex" and s.type.startswith("SECRET_")]
+    spans = [s for s in spans if s.source == "regex"
+             or not any(s.start < x.end and x.start < s.end for x in secrets)]
     # Tri stable : début, puis le plus long ; à égalité, la regex (ordre de la politique) prime sur le NER.
     ordered = sorted(spans, key=lambda s: (s.start, -(s.end - s.start), s.source != "regex"))
     kept: list[Span] = []

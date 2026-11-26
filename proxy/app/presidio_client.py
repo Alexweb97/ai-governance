@@ -14,7 +14,13 @@ def is_ner_noise(value: str) -> bool:
     """Faux positifs typiques du NER : mots très courts ("OK" pris pour l'Oklahoma) et sigles
     (TJM, BPU, DQE, CCTP pris pour des lieux). Les sigles de clients relèvent du dictionnaire."""
     v = value.strip()
-    return len(v) < 3 or (len(v) <= 4 and v.isupper())
+    if len(v) < 3 or (len(v) <= 4 and v.isupper()):
+        return True
+    # Identifiants, chemins, clés, jetons (VAR=/chemin, clé aléatoire) : faux positifs fréquents.
+    # Aucun nom de personne ni de lieu ne contient ces caractères, ni de chiffre accolé à des lettres.
+    if any(c in v for c in "=/\\_@:{}[]<>|"):
+        return True
+    return not any(c.isspace() for c in v) and any(c.isdigit() for c in v) and any(c.isalpha() for c in v)
 
 
 class PresidioUnavailable(RuntimeError):

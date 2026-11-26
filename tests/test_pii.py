@@ -64,6 +64,24 @@ def test_assignment_ignores_code_references(p):
     assert not [s for s in p.detector.detect(text) if s.type == "SECRET_ASSIGNMENT"]
 
 
+def test_assignment_catches_prefixed_names(p):
+    # Forme la plus courante d'un .env : DB_PASSWORD=, VENDOR_API_KEY=, APP_SECRET=, SECRET_KEY=.
+    v = ["Zq" + "8wLmT4pR2vNs" + str(i) for i in range(5)]
+    text = (f"ADMIN_PASSWORD={v[0]}\nVENDOR_API_KEY={v[1]}\nPSEUDO_SECRET={v[2]}\n"
+            f"DJANGO_SECRET_KEY={v[3]}\nGITLAB_PRIVATE_TOKEN={v[4]}\nGRAFANA_PORT=3001\nTOKEN_URL=https://x.io/a\n")
+    found = {s.value for s in p.detector.detect(text) if s.type == "SECRET_ASSIGNMENT"}
+    assert found == set(v)
+
+
+def test_ner_never_swallows_a_secret():
+    v = "Zq" + "8wLmT4pR2vNs"
+    text = f"VENDOR_API_KEY={v}"
+    ner = lambda t: [Span(0, len(t), "LOCATION", t, "presidio", 0.9)]  # noqa: E731
+    det = Detector(POLICY["pii"], ner=ner)
+    spans = det.detect(text, use_ner=True)
+    assert [(s.type, s.value) for s in spans] == [("SECRET_ASSIGNMENT", v)]
+
+
 def test_allowlist(p):
     assert p.detector.detect("contact: test@example.com ou user@example.org") == []
 
@@ -447,7 +465,9 @@ def test_ner_values_remasked_in_assistant_history():
 
 
 @pytest.mark.parametrize("value,noise", [("OK", True), ("TJM", True), ("CCTP", True), ("Lyon", False),
-                                         ("Pau", False), ("Marie Dupont", False), ("ONU", True)])
+                                         ("Pau", False), ("Marie Dupont", False), ("ONU", True),
+                                         ("CONFIG_DIR=" + chr(47) + "home", True), ("Ab3dEf7hIj9k", True),
+                                         ("Saint-Denis", False), ("Aix en Provence", False)])
 def test_ner_noise_filter(value, noise):
     pytest.importorskip("httpx")
     from app.presidio_client import is_ner_noise

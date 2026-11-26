@@ -74,7 +74,7 @@ export default function Simulator() {
           )}
           {m.data && (
             <>
-              <div className="flex-1 rounded-xl bg-slate-50 p-4 text-[13px] leading-7 whitespace-pre-wrap text-slate-800 ring-1 ring-slate-100">
+              <div className="flex-1 rounded-xl bg-slate-50 p-4 text-[13px] leading-7 whitespace-pre-wrap break-words text-slate-800 ring-1 ring-slate-100">
                 <Highlighted text={m.data.text} />
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
