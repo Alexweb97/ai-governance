@@ -9,6 +9,7 @@ and every agent action is checked against a single, versioned policy. No externa
 ![React](https://img.shields.io/badge/React-admin%20console-61DAFB?logo=react&logoColor=black)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 ---
 
@@ -29,6 +30,7 @@ and every agent action is checked against a single, versioned policy. No externa
 - [Roadmap](#roadmap)
 - [Project layout](#project-layout)
 - [Contributing](#contributing)
+- [License](#license)
 
 ---
 
@@ -455,3 +457,13 @@ ai-governance/
 
 Issues and pull requests are welcome. Please run the test suite before submitting, and never include real
 client data, credentials or personal information in issues, commits or test fixtures.
+
+By submitting a contribution, you agree that it is licensed under the Apache License 2.0.
+
+## License
+
+Copyright © 2026 Alexweb97.
+
+Licensed under the [Apache License, Version 2.0](LICENSE). You may use, modify and distribute this software,
+including for commercial purposes, provided you retain the copyright notice and the license. The software is
+provided "as is", without warranty of any kind.
