@@ -1,7 +1,8 @@
 # AI Governance for Claude Code
 
-**Local-first data protection, guardrails and audit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
-Sensitive data is pseudonymized before it leaves your machine, restored transparently in the model's answers,
+**Local-first data protection, guardrails and audit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — for live coding sessions and document work alike.**
+Whether Claude is refactoring a repository, querying a database, deploying infrastructure or drafting a proposal,
+sensitive data is pseudonymized before it leaves your machine, restored transparently in the model's answers,
 and every agent action is checked against a single, versioned policy. No external service, no cloud dependency.
 
 ![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
@@ -16,6 +17,7 @@ and every agent action is checked against a single, versioned policy. No externa
 ## Table of contents
 
 - [Why](#why)
+- [Use cases](#use-cases)
 - [Key features](#key-features)
 - [Architecture](#architecture)
 - [How pseudonymization works](#how-pseudonymization-works)
@@ -36,8 +38,10 @@ and every agent action is checked against a single, versioned policy. No externa
 
 ## Why
 
-Claude Code reads your files, runs commands and sends their output to a remote model. In a consulting or
-enterprise context, that output routinely contains client names, prices, personal data and credentials.
+Claude Code is an autonomous agent: it reads your files, runs shell commands, queries databases, calls MCP
+tools and the web, and sends everything it sees to a remote model. In a real codebase or an enterprise context, that
+stream routinely contains **credentials, production data, customer records, client names and prices** — and the agent
+can also *act*: push code, drop a table, apply infrastructure changes.
 
 This project puts a **governance layer** between Claude Code and the model provider:
 
@@ -49,16 +53,93 @@ This project puts a **governance layer** between Claude Code and the model provi
   dangerous commands, secret access and exfiltration attempts.
 - **Everything is auditable**, without the audit trail itself becoming a data leak.
 
+## Use cases
+
+The same policy, proxy and hooks govern every kind of Claude Code session. There is no "coding mode" or
+"document mode" to switch: protection applies to whatever the agent reads, runs or writes.
+
+### 1. Live coding in a repository
+
+Claude explores a codebase, runs tests, reads logs and writes code. The governance layer works silently in the loop:
+
+| What Claude does | What happens |
+|---|---|
+| Reads `config/settings.py` containing an AWS key | The key reaches the model as `PII_SECRET_…`; the file on disk is untouched |
+| Runs `cat .env`, `less ~/.ssh/id_rsa`, opens `terraform.tfstate` | **Denied** before execution — through `Read`, `Grep`, `Glob` or Bash alike |
+| Runs `pytest` or tails `logs/app.log`, whose output contains customer emails and phone numbers | Output is pseudonymized before being sent; Claude still sees *that* there is an email, not which one |
+| Writes an API key in clear text into a source file | **Confirmation requested** (hard-coded secret) |
+| Runs `git push --force`, `rm -rf /`, `curl … \| sh`, `chmod 777` | **Denied** |
+| Runs `git push` | **Confirmation requested** |
+| Edits code that references a pseudonymized value | The real value is restored before the edit is written: no placeholders end up in your repository |
+| Touches a sensitive module (pricing engine, client-specific config) | Declare it **C3 in place** from the Projects screen: unreadable with Claude, without renaming anything |
+
+The **Projects** screen also scans a repository locally for hard-coded credentials, secret files, client names in
+code or in folder names — before the first session starts.
+
+### 2. Databases, data pipelines and infrastructure
+
+When the agent operates on real systems, the risk shifts from *what it reads* to *what it does*:
+
+| What Claude does | What happens |
+|---|---|
+| `psql -c "DROP TABLE …"`, `TRUNCATE`, `GRANT`, `DELETE` / `UPDATE` without `WHERE` — in Bash or through an MCP database tool | **Denied** |
+| `SELECT * FROM customers` (or any table listed as holding personal data) | **Confirmation requested** (or denied, configurable); emails, phones, IBANs… in the returned rows are pseudonymized (people's names too if NER is enabled on tool output) |
+| `terraform apply`, `kubectl apply`, `dbt run --target prod`, `sudo …` | **Confirmation requested** |
+| Sends personal data over the network (`curl -d "email=…"`, `wget`, `nc`, `mail`) | **Denied** for secrets, confirmation for personal data |
+| `WebFetch` to pastebin, webhook.site, ngrok, or a URL embedding data | **Denied** (anti-exfiltration) |
+
+### 3. Documents: tenders, contracts, résumés, reports
+
+Claude reads PDFs (through `pdftotext` / OCR), Word exports, spreadsheets and notes to draft proposals or summaries:
+
+- **Client names and their variants** (acronyms, former names, domains, contacts) come from a dictionary managed in the
+  console and are masked everywhere Claude reads them. Use neutral codes (`C001`) for folder names.
+- **Amounts and prices** (`125 000 € HT`, daily rates) and **people's names** (NER) are masked.
+- **Binary PDFs and images** are never sent as-is: they cannot be pseudonymized.
+- Each tender has a **C2 working area** (pseudonymized) and a **C3 area** (never sent to Anthropic).
+
+### 4. Highly confidential work with a trusted model
+
+Some content must not leave for a public cloud provider at all, even pseudonymized: pricing strategy, NDA material,
+proprietary algorithms. Mark it **C3** (folder, file name or declared path) and switch the console to a **trusted
+provider** — a local model (Ollama, vLLM), one hosted by your organization, or any provider via LiteLLM.
+Three independent locks (hooks, console, proxy) then guarantee that a session which has read C3 content can never be
+sent to Anthropic, even if resumed days later.
+
+### 5. Oversight, audit and compliance
+
+- **Dashboard** of every decision: denials, confirmations, pseudonymizations, C3 accesses.
+- **Grafana** for cost, tokens, detections and trends over time; raw JSONL audit for investigations.
+- The audit trail stores **types and fingerprints, never sensitive values**.
+- **Settings history** flags every change that reduces protection.
+- **Managed settings** prevent bypassing: the proxy is enforced, `--dangerously-skip-permissions` is disabled,
+  only managed hooks run, and the system **fails closed** if a component is down.
+
+### At a glance
+
+| Capability | Live coding | Data & infra | Documents | Confidential (C3) |
+|---|:---:|:---:|:---:|:---:|
+| Secrets pseudonymized in prompts, files and command output | ✅ | ✅ | ✅ | ✅ |
+| Personal data pseudonymized (emails, phones, IBAN, IDs…) | ✅ | ✅ | ✅ | ✅ |
+| Client dictionary, amounts, people's names | ✅ | ✅ | ✅ | ✅ |
+| Real values restored when Claude writes files | ✅ | ✅ | ✅ | ✅ |
+| Sensitive files blocked (`.env`, keys, tfstate…) | ✅ | ✅ | ✅ | ✅ |
+| Dangerous shell commands denied / impactful ones confirmed | ✅ | ✅ | — | ✅ |
+| Destructive SQL denied, personal-data tables confirmed (Bash + MCP) | ✅ | ✅ | — | ✅ |
+| Network and web exfiltration blocked | ✅ | ✅ | ✅ | ✅ |
+| C3 content kept away from Anthropic, trusted provider only | ✅ | ✅ | ✅ | ✅ |
+| Audit, dashboard, Grafana | ✅ | ✅ | ✅ | ✅ |
+
 ## Key features
 
 | | |
 |---|---|
 | 🔒 **Reversible pseudonymization** | Deterministic HMAC tokens, restored in streamed responses (SSE), prompt caching preserved |
 | 🧠 **Hybrid detection** | Regex with validators (IBAN mod 97, Luhn, NIR key) + Presidio NER + client dictionary |
-| 🛡️ **Guardrails** | Pre-prompt and pre-tool hooks: secrets, destructive SQL, dangerous shell, web exfiltration |
-| 🔐 **Confidentiality levels** | C1 / C2 / C3 classification; C3 content can never reach the default cloud provider |
+| 🛡️ **Guardrails** | Pre-prompt and pre-tool hooks for coding, data and infra sessions: secret files, destructive SQL (Bash and MCP), dangerous or impactful commands (`git push`, `terraform apply`…), web and network exfiltration |
+| 🔐 **Confidentiality levels** | C1 / C2 / C3 classification for documents **and code repositories** (C3 paths declared in place); C3 content can never reach the default cloud provider |
 | 🔀 **Pluggable model providers** | Claude by default, or any "trusted provider" (self-hosted, GPT, Gemini, Mistral, Copilot, Ollama… via LiteLLM) |
-| 🖥️ **Admin console** | React UI to manage clients, projects, files, settings, and simulate what the model receives |
+| 🖥️ **Admin console** | React UI (English / French) to manage clients, code projects, tender files and settings, scan repositories for secrets, and simulate what the model receives |
 | 📊 **Observability** | OpenTelemetry → Prometheus / Loki → Grafana: cost, tokens, detections, denials |
 | 🚫 **Fail-closed by design** | If detection or the policy is unavailable, requests are refused rather than sent unprotected |
 
