@@ -34,8 +34,21 @@ SECRET_FILE_PATTERNS = (".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "i
 SECRET_FILE_EXCEPTIONS = {".env.example", ".env.sample", ".env.template", ".env.dist"}
 # Identifiant écrit en dur. Ignore les références (${VAR}, <...>, {{ }}, %s) : la valeur n'est jamais renvoyée.
 CREDENTIAL_RE = re.compile(
-    r"""(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|client[_-]?secret)\b["']?\s*[:=]\s*["']?"""
-    r"""(?!\$|<|\{\{|%|changeme|xxx|\*)[^\s"'#,;]{6,}""")
+    r"""(?i)(?<![a-z])(password|passwd|pwd|secret|token|api[_-]?key|client[_-]?secret)["']?\s*[:=]\s*(["']?)"""
+    r"""(?!\$|<|\{|%|changeme|xxx|\*|os\.|process\.env|getenv|env\[)([^\s"'#,;]{6,})""")
+# In source code, only a quoted literal is a hard-coded credential: `secret = load()` is code, not a value.
+CONFIG_SUFFIXES = {".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties", ".toml", ".env", ".txt", ".xml", ".tf",
+                   ".tfvars", ".sh", ".bash", ".zsh", ".ps1", ".sql", ""}
+
+
+def credential_match(line: str, filename: str):
+    """Match of a hard-coded credential in a line, or None. Never returns the value to callers that report."""
+    m = CREDENTIAL_RE.search(line)
+    if not m:
+        return None
+    if not m.group(2) and Path(filename).suffix.lower() not in CONFIG_SUFFIXES:
+        return None
+    return m
 
 
 def _slug(name: str) -> str:
@@ -326,7 +339,7 @@ class ProjectsMixin:
                             e["samples"].append({"path": rel, "c3": level})
                 if len(credentials) < SCAN_MAX_CREDENTIALS:
                     for i, line in enumerate(text.splitlines(), 1):
-                        m = CREDENTIAL_RE.search(line)
+                        m = credential_match(line, fname)
                         if m:
                             credentials.append({"path": rel, "line": i, "key": m.group(1), "c3": level})
                             if len(credentials) >= SCAN_MAX_CREDENTIALS:

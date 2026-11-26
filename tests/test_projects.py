@@ -261,3 +261,22 @@ def test_api_project_flow(api, tmp_path):
 def test_api_project_mutation_needs_csrf_header(api):
     del api.headers["X-Gov-Admin"]
     assert api.post("/api/projects", json={"path": "autre"}).status_code == 403
+
+
+def test_credential_regex_prefixed_names_and_references():
+    from govadmin.projects import CREDENTIAL_RE
+    hit = ["DB_" + "PASSWORD = 'k9x2m4p7q'", "API_KEY=k9x2m4p7q", "client_secret: k9x2m4p7q"]
+    miss = ["passwordHash = compute()", "token = os.environ['T']", "password = '${DB_PASS}'",
+            "secret = process.env.SECRET", "pwd = getenv('PWD')"]
+    assert all(CREDENTIAL_RE.search(s) for s in hit)
+    assert not any(CREDENTIAL_RE.search(s) for s in miss)
+
+
+def test_credential_match_quoted_in_code_unquoted_in_config():
+    from govadmin.projects import credential_match
+    value = "Zq" + "9xW" * 3
+    assert credential_match(f'DB_PASS{"WORD"} = "{value}"', "settings.py")
+    assert credential_match(f"pass{'word'}: {value}", "config/prod.yaml")
+    assert credential_match(f"API_KEY={value}", "deploy.sh")
+    assert not credential_match("self.secret = secret_value", "engine.py")
+    assert not credential_match("token = fetch_token(user)", "client.ts")
