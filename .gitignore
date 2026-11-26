@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+policy/terms.json
+certs/*.crt
+node_modules/
+dist/
+.venv/
+*.tsbuildinfo
+litellm/config.yaml

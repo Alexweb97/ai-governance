@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: claude-code          # métriques Claude Code reçues par le collecteur OTel
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  - job_name: governance-proxy     # métriques du proxy (PII, latence, erreurs)
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["proxy:8787"]

@@ -1,0 +1,18 @@
+{
+  "_comment": "Format du dictionnaire des termes à pseudonymiser partout (prompts, fichiers lus, sorties de commandes). Il est géré par la console d'administration (~/.config/claude-governance/terms.json) ; un policy/terms.json existant est repris à l'installation. Insensible à la casse, mots entiers ; listez les variantes (accents, sigles, ancien nom...). Les clés sont les types des jetons : PII_CLIENT_xxxxxxxx.",
+  "CLIENT": [
+    "Acme Industries",
+    "Acme",
+    "Groupe Exemple",
+    "Société Exemple",
+    "Societe Exemple"
+  ],
+  "PROJET": [
+    "Projet Phoenix",
+    "Phoenix"
+  ],
+  "INTERNE": [
+    "nom de code produit",
+    "référence de marché"
+  ]
+}

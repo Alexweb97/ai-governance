@@ -1,0 +1,138 @@
+{
+  "version": "1.0.0",
+  "_comment": "Politique unique de gouvernance, lue par le proxy (pseudonymisation) et par les hooks Claude Code (guardrails). Toute modification est prise en compte par les hooks immédiatement, et par le proxy après 'docker compose restart proxy'.",
+
+  "pii": {
+    "allowlist": [
+      "127.0.0.1", "0.0.0.0", "localhost",
+      "noreply@anthropic.com", "user@example.com", "test@example.com",
+      "Claude", "Anthropic"
+    ],
+    "allowlist_regex": [
+      "^[A-Za-z0-9._%+-]+@example\\.(com|org|net)$"
+    ],
+    "patterns": [
+      { "type": "SECRET_PRIVATE_KEY", "regex": "-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----" },
+      { "type": "SECRET_ANTHROPIC",   "regex": "sk-ant-[A-Za-z0-9_-]{20,}" },
+      { "type": "SECRET_OPENAI",      "regex": "\\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}" },
+      { "type": "SECRET_AWS_KEY",     "regex": "\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b" },
+      { "type": "SECRET_GITHUB",      "regex": "\\bgh[pousr]_[A-Za-z0-9]{36,}\\b" },
+      { "type": "SECRET_GCP_KEY",     "regex": "\\bAIza[0-9A-Za-z_-]{35}\\b" },
+      { "type": "SECRET_SLACK",       "regex": "\\bxox[abposr]-[A-Za-z0-9-]{10,}\\b" },
+      { "type": "SECRET_JWT",         "regex": "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}" },
+      { "type": "SECRET_URL_PASSWORD","regex": "\\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\\s:/@]+:([^\\s@/]{3,})@", "group": 1 },
+      { "type": "SECRET_ASSIGNMENT",  "regex": "(?i)\\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret)\\b[\"']?\\s*[:=]\\s*[\"']?(?![$<{])(?![\\w.]+[\\[(])([^\\s\"',;()\\[\\]{}]{8,})", "group": 1 },
+
+      { "type": "EMAIL",       "regex": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b" },
+      { "type": "IBAN",        "regex": "\\b[A-Z]{2}\\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\\b", "validator": "iban" },
+      { "type": "NIR",         "regex": "\\b[12] ?\\d{2} ?(?:0[1-9]|1[0-2]|[2-9]\\d) ?(?:\\d{2}|2[AB]) ?\\d{3} ?\\d{3} ?\\d{2}\\b", "validator": "nir" },
+      { "type": "SIRET",       "regex": "\\b\\d{3} ?\\d{3} ?\\d{3} ?\\d{5}\\b", "validator": "luhn" },
+      { "type": "CREDIT_CARD", "regex": "\\b(?:\\d[ -]?){12,18}\\d\\b", "validator": "luhn" },
+      { "type": "PHONE_FR",    "regex": "(?<![\\d+])(?:\\+33[ .-]?|0033[ .-]?|0)[1-9](?:[ .-]?\\d{2}){4}(?!\\d)" },
+      { "type": "MONTANT",     "regex": "(?<![\\w.,])(?:(?:\\d{1,3}(?:[   .]\\d{3})+(?:,\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?)\\s?(?:[kKM]\\s?€|€|EUR\\b|[kKM]\\s?EUR\\b|(?:k|M|milliers? d'|millions? d')?\\s?euros?\\b)(?:\\s?(?:HT|TTC|HTVA|H\\.T\\.?|T\\.T\\.C\\.?)\\b)?|€\\s?(?:\\d{1,3}(?:[   .]\\d{3})+(?:,\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?))" },
+      { "type": "MONTANT",     "regex": "(?i)\\b(?:prix|montants?|totale?s?\\s+(?:HT|TTC)|tarifs?|co[uû]ts?|budgets?|forfaits?|TJM|taux\\s+journaliers?)\\b[^\\n\\d€=(\\[{]{0,40}((?:\\d{1,3}(?:[   .]\\d{3})+(?:,\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?)(?:\\s?(?:€|EUR|euros?|HT|TTC)\\b)?)", "group": 1,
+        "_comment": "Montant sans devise précédé d'un mot-clé (prix, montant, TJM...). Le modèle ne voit plus les valeurs : il ne peut plus calculer de totaux. Mettre enabled: false pour l'autoriser." },
+      { "type": "IPV4",        "regex": "\\b(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}\\b", "enabled": false,
+        "_comment": "Désactivé par défaut : trop de faux positifs sur les numéros de version (1.2.3.4) dans le code." }
+    ],
+    "presidio": {
+      "enabled": true,
+      "required": true,
+      "language": "fr",
+      "entities": ["PERSON", "LOCATION"],
+      "score_threshold": 0.75,
+      "max_chars": 20000,
+      "scopes": ["user_text", "document"],
+      "_comment": "Le NER (noms, lieux) est appliqué aux prompts saisis et aux documents (extractions pdftotext, fichiers .md/.txt...), pas au code (tool_result) où il prend les noms de classes pour des personnes. Ajouter 'tool_result' pour durcir, au prix de la qualité."
+    },
+    "request": {
+      "blocked_media": ["pdf", "image"],
+      "document_commands": "\\b(?:pdftotext|pdftohtml|pdfinfo|pdftoppm|pdfimages|pdfdetach|pandoc|docx2txt|odt2txt|catdoc|xls2csv|in2csv|tesseract|ocrmypdf|exiftool)\\b|\\.(?:txt|md|csv|tsv|pdf|docx?|odt|rtf|html?|eml|msg)\\b",
+      "document_workspace": "/clients/",
+      "document_extensions": [".txt", ".md", ".csv", ".tsv", ".html", ".xml", ".rtf"],
+      "_comment": "blocked_media : PDF et images sont retirés des requêtes (non pseudonymisables) ; Claude est invité à passer par pdftotext. Sont traitées en scope 'document' (NER actif) : toutes les sorties d'outils d'une session ouverte dans un dossier correspondant à document_workspace (~/clients/), et ailleurs les commandes document_commands (outils PDF/OCR, ou commande touchant un fichier .txt/.pdf/.md...) et la lecture des document_extensions."
+    },
+    "rehydration": {
+      "blocked_tools": ["WebFetch", "WebSearch"],
+      "secret_types": ["SECRET_*"],
+      "secret_tools": ["Write", "Edit", "MultiEdit", "NotebookEdit"],
+      "_comment": "Anti-exfiltration : le proxy ne restitue aucune valeur dans les outils blocked_tools, et ne restitue les secrets que dans les outils d'écriture de fichiers (secret_tools). Ailleurs (Bash, MCP...), le jeton PII_SECRET_… reste tel quel."
+    },
+    "mapping_ttl_seconds": 86400
+  },
+
+  "prompt_guard": {
+    "block_types": [
+      "SECRET_PRIVATE_KEY", "SECRET_ANTHROPIC", "SECRET_OPENAI", "SECRET_AWS_KEY",
+      "SECRET_GITHUB", "SECRET_GCP_KEY", "SECRET_SLACK", "SECRET_JWT", "SECRET_URL_PASSWORD",
+      "NIR", "CREDIT_CARD"
+    ],
+    "warn_types": ["*"]
+  },
+
+  "tool_guard": {
+    "sensitive_paths": [
+      "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/*.p12", "**/*.pfx",
+      "**/id_rsa*", "**/id_ed25519*", "**/.ssh/**", "**/.aws/**", "**/.azure/**",
+      "**/.config/gcloud/**", "**/.kube/config", "**/.netrc", "**/.pgpass",
+      "**/secrets/**", "**/.config/claude-governance/**", "**/*.tfstate", "**/*.tfstate.backup", "**/credentials.json"
+    ],
+    "c3_marker_regex": "(?<![\\w.-])_(?:confidentiel|CONFIDENTIEL)(?![\\w.-])|\\.confidentiel\\.",
+    "_comment_c3": "Niveau C3 : dossiers _confidentiel et fichiers *.confidentiel.*. Lisibles UNIQUEMENT quand le fournisseur de confiance (TRUSTED_*) est actif ; la session est alors marquée C3 et le proxy refusera toujours de l'envoyer à Anthropic, même reprise plus tard. Avec Claude : accès refusé.",
+    "sensitive_path_exceptions": [".env.example", ".env.sample", ".env.template", ".env.dist"],
+
+    "read_media_extensions": [".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp"],
+    "read_media_reason": "Les PDF et images ne peuvent pas être pseudonymisés. Lisez le PDF en texte : pdftotext -layout <fichier> - (les données sensibles seront masquées par le proxy).",
+
+    "bash_deny": [
+      { "regex": "\\brm\\s+(?:-\\S+\\s+)*[\"']?(?:/|~|\\$HOME|\\$\\{HOME\\})/?\\*?[\"']?(?:\\s|[;&|]|$)", "reason": "Suppression récursive de la racine ou du home" },
+      { "regex": "\\b(?:curl|wget)\\b[^|]*\\|\\s*(?:sudo\\s+)?(?:ba|z|da)?sh\\b", "reason": "Exécution d'un script téléchargé (curl | sh)" },
+      { "regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:nc|ncat|netcat|socat)\\b", "reason": "Outil réseau brut (risque d'exfiltration)" },
+      { "regex": "\\bgit\\s+push\\b.*(?:--force\\b|\\s-f\\b)", "reason": "git push --force interdit" },
+      { "regex": "\\bchmod\\s+(?:-R\\s+)?777\\b", "reason": "chmod 777 interdit" },
+      { "regex": "\\b(?:mkfs(?:\\.\\w+)?|fdisk|parted|wipefs)\\b", "reason": "Commande disque destructive" },
+      { "regex": "\\bdd\\b.*\\bof=/dev/", "reason": "Écriture directe sur un périphérique" },
+      { "regex": "\\bbase64\\b.*\\|\\s*(?:curl|wget)\\b", "reason": "Encodage + envoi réseau (exfiltration)" },
+      { "regex": "\\bhistory\\s+-c\\b|\\bunset\\s+HISTFILE\\b", "reason": "Effacement de traces" }
+    ],
+    "bash_ask": [
+      { "regex": "\\bgit\\s+push\\b", "reason": "Publication de code (git push)" },
+      { "regex": "\\b(?:terraform|tofu)\\s+(?:apply|destroy|import)\\b", "reason": "Modification d'infrastructure" },
+      { "regex": "\\bkubectl\\s+(?:apply|delete|scale|exec|patch|edit)\\b", "reason": "Action sur un cluster Kubernetes" },
+      { "regex": "\\bdocker\\s+(?:rm|rmi|system\\s+prune|volume\\s+rm)\\b", "reason": "Suppression de ressources Docker" },
+      { "regex": "\\bdbt\\s+(?:run|build|seed|snapshot)\\b.*--target\\s+prod", "reason": "dbt sur la cible prod" },
+      { "regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:curl|wget|https?|httpie|xh)\\b", "reason": "Appel réseau sortant" },
+      { "regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:scp|rsync|sftp)\\b", "reason": "Transfert de fichiers" },
+      { "regex": "(?:^|[;&|]\\s*)(?:printenv|env)\\s*(?:$|[;&|])", "reason": "Affichage des variables d'environnement (secrets possibles)" },
+      { "regex": "\\bsudo\\b", "reason": "Élévation de privilèges" }
+    ],
+
+    "bash_network_regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:curl|wget|https?|httpie|xh|nc|ncat|netcat|socat|ftp|telnet|mailx?|sendmail)\\b",
+    "bash_network_pii_decision": "ask",
+    "_comment_bash_network": "Commande réseau contenant une valeur sensible : secret -> deny, autre PII -> bash_network_pii_decision. Protège contre l'exfiltration de valeurs ré-identifiées par le proxy.",
+
+    "sql_deny": [
+      { "regex": "(?i)\\bDROP\\s+(?:TABLE|DATABASE|SCHEMA|VIEW|INDEX)\\b", "reason": "DROP interdit" },
+      { "regex": "(?i)\\bTRUNCATE\\b", "reason": "TRUNCATE interdit" },
+      { "regex": "(?i)\\b(?:GRANT|REVOKE)\\b\\s+\\w", "reason": "Gestion des droits interdite" },
+      { "regex": "(?i)\\bALTER\\s+(?:USER|ROLE)\\b", "reason": "Modification de rôles interdite" }
+    ],
+    "sql_deny_dml_without_where": true,
+    "pii_tables": ["customers", "clients", "client", "personnes", "persons", "users", "employees", "salaries", "employes", "patients", "contacts", "prospects"],
+    "pii_tables_decision": "ask",
+
+    "web_deny_domains": ["pastebin.com", "transfer.sh", "webhook.site", "requestbin.com", "ngrok.io", "ngrok-free.app"],
+    "write_secret_decision": "ask"
+  },
+
+  "hooks": {
+    "fail_mode": "closed",
+    "_comment": "closed : si un hook plante, l'action est refusée. open : elle passe (et l'erreur est journalisée)."
+  },
+
+  "audit": {
+    "hooks_log": "/var/log/claude-governance/hooks-audit.jsonl",
+    "log_prompt_text": false,
+    "max_command_chars": 300
+  }
+}

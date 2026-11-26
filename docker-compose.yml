@@ -1,0 +1,156 @@
+name: claude-governance
+
+# Tous les ports sont liés à 127.0.0.1 : rien n'est exposé hors de la machine.
+services:
+
+  proxy:
+    build:
+      context: ./proxy
+      additional_contexts:
+        certs: ./certs   # certificats d'un proxy TLS d'entreprise, si besoin
+    env_file: .env
+    environment:
+      UPSTREAM_URL: https://api.anthropic.com
+      POLICY_PATH: /etc/claude-governance/policy.json
+      PRESIDIO_URL: http://presidio:3000
+      REDIS_URL: redis://redis:6379/0
+      AUDIT_LOG: /var/log/claude-governance/proxy-audit.jsonl
+      GOV_CONFIG_DIR: /var/lib/claude-governance
+      GOV_DEBUG_STRUCTURE: ${GOV_DEBUG_STRUCTURE:-}   # diagnostic : structure des requêtes, sans contenu
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    volumes:
+      - ./policy:/etc/claude-governance:ro
+      # dictionnaire et réglages écrits par la console (rechargés à chaud)
+      - ${GOV_CONFIG_DIR:?définir GOV_CONFIG_DIR dans .env}:/var/lib/claude-governance:ro
+      - ${GOV_LOG_DIR:-/var/log/claude-governance}:/var/log/claude-governance
+    ports:
+      - "127.0.0.1:8787:8787"
+    depends_on:
+      presidio:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  # Console d'administration : clients, consultations, dépôt de fichiers, réglages.
+  admin:
+    build:
+      context: ./admin
+      additional_contexts:
+        certs: ./certs   # certificats d'un proxy TLS d'entreprise, si besoin
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?définir ADMIN_PASSWORD dans .env}
+      GOV_CONFIG_DIR: /var/lib/claude-governance
+      CLIENTS_DIR: /data/clients
+      HOST_CLIENTS_DIR: ${CLIENTS_DIR:?définir CLIENTS_DIR dans .env}
+      GOV_LOG_DIR: /var/log/claude-governance
+      # projets de code (écran Projets) : lus seulement, jamais modifiés par la console
+      POLICY_PATH: /etc/claude-governance/policy.json
+      PROJECTS_DIR: /data/projects
+      HOST_PROJECTS_DIR: ${PROJECTS_DIR:-${HOME}/project}
+      PROXY_URL: http://proxy:8787
+      GRAFANA_PUBLIC_URL: http://localhost:${GRAFANA_PORT:-3001}
+      # description du fournisseur de confiance affichée dans la console (la clé n'est jamais transmise ici)
+      TRUSTED_NAME: ${TRUSTED_NAME:-}
+      TRUSTED_MODEL: ${TRUSTED_MODEL:-}
+      TRUSTED_URL: ${TRUSTED_URL:-}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    volumes:
+      - ${GOV_CONFIG_DIR}:/var/lib/claude-governance
+      - ${CLIENTS_DIR}:/data/clients
+      - ${PROJECTS_DIR:-${HOME}/project}:/data/projects:ro
+      - ./policy:/etc/claude-governance:ro   # valeurs par défaut des réglages
+      - ${GOV_LOG_DIR:-/var/log/claude-governance}:/var/log/claude-governance:ro
+    ports:
+      - "127.0.0.1:8788:8788"
+    depends_on: [proxy]
+    restart: unless-stopped
+
+  # Optionnel : passerelle LiteLLM pour utiliser OpenAI (GPT), Gemini, Mistral, Azure, Ollama, GitHub Copilot...
+  # comme fournisseur de confiance. Elle expose le format Anthropic Messages attendu par le proxy.
+  # Activation : docker compose --profile litellm up -d   (voir litellm/config.example.yaml et le README)
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    profiles: ["litellm"]
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    env_file: .env
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    expose: ["4000"]
+    restart: unless-stopped
+
+  presidio:
+    build:
+      context: ./presidio
+      additional_contexts:
+        certs: ./certs   # certificats d'un proxy TLS d'entreprise, si besoin
+    expose: ["3000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=4).status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 10
+    restart: unless-stopped
+
+  # Table jeton -> valeur réelle. En mémoire uniquement (aucune persistance disque),
+  # non exposée hors du réseau Docker.
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.128.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - ${GOV_LOG_DIR:-/var/log/claude-governance}:/var/log/claude-governance:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    depends_on: [loki]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=90d
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.5.0
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    expose: ["3100"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.0.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?définir GRAFANA_ADMIN_PASSWORD dans .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/governance.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"   # 3000 souvent pris par d'autres projets
+    depends_on: [prometheus, loki]
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:

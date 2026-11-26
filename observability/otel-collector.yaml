@@ -1,0 +1,54 @@
+receivers:
+  # Télémétrie native de Claude Code (métriques : coûts, tokens, sessions... ; logs/événements).
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Journaux d'audit des hooks (décisions des guardrails).
+  filelog/hooks:
+    include: [/var/log/claude-governance/hooks-audit.jsonl]
+    start_at: end
+
+  # Journaux d'audit du proxy (pseudonymisations, blocages fail-closed).
+  filelog/proxy:
+    include: [/var/log/claude-governance/proxy-audit.jsonl]
+    start_at: end
+
+processors:
+  batch: {}
+  resource/hooks:
+    attributes:
+      - { key: service.name, value: claude-governance-hooks, action: upsert }
+  resource/proxy:
+    attributes:
+      - { key: service.name, value: claude-governance-proxy, action: upsert }
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+    logs/claude-code:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki]
+    logs/hooks:
+      receivers: [filelog/hooks]
+      processors: [resource/hooks, batch]
+      exporters: [otlphttp/loki]
+    logs/proxy:
+      receivers: [filelog/proxy]
+      processors: [resource/proxy, batch]
+      exporters: [otlphttp/loki]

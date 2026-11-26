@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8787",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4317",
+    "OTEL_METRIC_EXPORT_INTERVAL": "15000",
+    "OTEL_LOGS_EXPORT_INTERVAL": "5000",
+    "OTEL_LOG_USER_PROMPTS": "0",
+    "OTEL_RESOURCE_ATTRIBUTES": "deployment.environment=wsl-local,team=data"
+  },
+
+  "permissions": {
+    "disableBypassPermissionsMode": "disable",
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/*.tfstate)",
+      "Read(**/secrets/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.azure/**)",
+      "Read(~/.config/gcloud/**)",
+      "Read(~/.kube/config)",
+      "Read(/etc/claude-code/**)",
+      "Edit(/etc/claude-code/**)",
+      "Edit(/opt/claude-governance/**)",
+      "Read(~/.config/claude-governance/**)",
+      "Edit(~/.config/claude-governance/**)",
+      "Bash(sudo *)"
+    ]
+  },
+
+  "allowManagedHooksOnly": true,
+
+  "statusLine": { "type": "command", "command": "python3 /opt/claude-governance/hooks/statusline.py" },
+
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "python3 /opt/claude-governance/hooks/guard_prompt.py", "timeout": 15 } ] }
+    ],
+    "PreToolUse": [
+      { "hooks": [ { "type": "command", "command": "python3 /opt/claude-governance/hooks/guard_tool.py", "timeout": 15 } ] }
+    ],
+    "PostToolUse": [
+      { "hooks": [ { "type": "command", "command": "python3 /opt/claude-governance/hooks/audit.py", "timeout": 10 } ] }
+    ],
+    "PostToolUseFailure": [
+      { "hooks": [ { "type": "command", "command": "python3 /opt/claude-governance/hooks/audit.py", "timeout": 10 } ] }
+    ],
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "python3 /opt/claude-governance/hooks/audit.py", "timeout": 10 } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "python3 /opt/claude-governance/hooks/audit.py", "timeout": 10 } ] }
+    ],
+    "ConfigChange": [
+      { "hooks": [ { "type": "command", "command": "python3 /opt/claude-governance/hooks/audit.py", "timeout": 10 } ] }
+    ],
+    "SubagentStart": [
+      { "hooks": [ { "type": "command", "command": "python3 /opt/claude-governance/hooks/audit.py", "timeout": 10 } ] }
+    ]
+  }
+}

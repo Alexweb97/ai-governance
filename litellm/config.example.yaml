@@ -1,0 +1,65 @@
+# Passerelle LiteLLM : permet d'utiliser n'importe quel fournisseur comme « fournisseur de confiance ».
+# Le proxy de gouvernance lui parle au format Anthropic Messages ; LiteLLM traduit vers le fournisseur choisi.
+#
+# 1. Copier ce fichier :           cp litellm/config.example.yaml litellm/config.yaml
+# 2. Garder un seul modèle (ou plusieurs) et renseigner les clés correspondantes dans le fichier d'environnement.
+# 3. Dans le fichier d'environnement :
+#      TRUSTED_URL=http://litellm:4000
+#      TRUSTED_MODEL=<model_name choisi ci-dessous, ex. gpt>
+#      TRUSTED_API_KEY=<même valeur que LITELLM_MASTER_KEY>
+#      TRUSTED_NAME=<nom affiché, ex. GPT (OpenAI)>
+# 4. docker compose --profile litellm up -d
+#
+# Rappel : le contenu C3 est envoyé tel quel (pseudonymisé) au fournisseur de confiance.
+# Ne choisissez ici qu'un service à qui vous confiez réellement ces données.
+
+model_list:
+  # OpenAI (GPT)
+  - model_name: gpt
+    litellm_params:
+      model: openai/gpt-4.1
+      api_key: os.environ/OPENAI_API_KEY
+
+  # Google Gemini
+  - model_name: gemini
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+      api_key: os.environ/GEMINI_API_KEY
+
+  # Mistral
+  - model_name: mistral
+    litellm_params:
+      model: mistral/mistral-large-latest
+      api_key: os.environ/MISTRAL_API_KEY
+
+  # Azure OpenAI
+  # - model_name: azure
+  #   litellm_params:
+  #     model: azure/<nom-du-déploiement>
+  #     api_base: os.environ/AZURE_API_BASE
+  #     api_key: os.environ/AZURE_API_KEY
+  #     api_version: "2024-10-21"
+
+  # GitHub Copilot (abonnement Copilot ; connexion par code au premier appel, voir les logs du conteneur)
+  # - model_name: copilot
+  #   litellm_params:
+  #     model: github_copilot/gpt-4.1
+
+  # Modèle local avec Ollama (rien ne quitte la machine)
+  # - model_name: local
+  #   litellm_params:
+  #     model: ollama_chat/qwen3:14b
+  #     api_base: http://host.docker.internal:11434
+
+  # Serveur compatible OpenAI auto-hébergé (vLLM, TGI, LM Studio...)
+  # - model_name: interne
+  #   litellm_params:
+  #     model: openai/<nom-du-modèle>
+  #     api_base: https://llm.example.org/v1
+  #     api_key: os.environ/INTERNAL_LLM_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  drop_params: true   # ignore les paramètres propres à Claude que le fournisseur ne connaît pas
