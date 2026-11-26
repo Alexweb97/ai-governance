@@ -35,7 +35,8 @@ SECRET_FILE_EXCEPTIONS = {".env.example", ".env.sample", ".env.template", ".env.
 # Identifiant écrit en dur. Ignore les références (${VAR}, <...>, {{ }}, %s) : la valeur n'est jamais renvoyée.
 CREDENTIAL_RE = re.compile(
     r"""(?i)(?<![a-z])(password|passwd|pwd|secret|token|api[_-]?key|client[_-]?secret)["']?\s*[:=]\s*(["']?)"""
-    r"""(?!\$|<|\{|%|changeme|xxx|\*|os\.|process\.env|getenv|env\[)([^\s"'#,;]{6,})""")
+    r"""(?!\$|<|\{|%|changeme|xxx|\*|os\.|process\.env|getenv|env\[)([^\s"'#,;]{6,})(?(2)\2)""")
+# (?(2)\2): a quoted value must close right after the token, so a sentence such as "Sending a secret…" is not a value.
 # In source code, only a quoted literal is a hard-coded credential: `secret = load()` is code, not a value.
 CONFIG_SUFFIXES = {".yaml", ".yml", ".ini", ".cfg", ".conf", ".properties", ".toml", ".env", ".txt", ".xml", ".tf",
                    ".tfvars", ".sh", ".bash", ".zsh", ".ps1", ".sql", ""}

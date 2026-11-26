@@ -280,3 +280,6 @@ def test_credential_match_quoted_in_code_unquoted_in_config():
     assert credential_match(f"API_KEY={value}", "deploy.sh")
     assert not credential_match("self.secret = secret_value", "engine.py")
     assert not credential_match("token = fetch_token(user)", "client.ts")
+    # message catalogs: a key ending in "secret" with a sentence as value is not a credential
+    assert not credential_match('"network_secret": "Sending a secret over the network"', "messages.py")
+    assert credential_match(f'AWS_SECRET = "{value}"', "settings.py")
