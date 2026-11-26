@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { ArrowRight, FileText, FlaskConical, MessageSquare, Sparkles } from "lucide-react";
 import { api } from "../lib/api";
 import { Alert, Button, Card, CardHeader, PageHeader, Textarea } from "../components/ui";
+import { useI18n } from "../i18n";
 
 const SAMPLE = `Réponse au marché d'ACME Industries — référente : Marie Dupont, Lyon.
 Montant total : 125 000 € HT, TJM 650. Contact : marie.dupont@acme-industries.fr, 01 23 45 67 89.
@@ -30,6 +31,7 @@ function Highlighted({ text }: { text: string }) {
 }
 
 export default function Simulator() {
+  const { t } = useI18n();
   const [text, setText] = useState(SAMPLE);
   const [scope, setScope] = useState<"user_text" | "document">("document");
   const m = useMutation({ mutationFn: () => api.preview(text, scope) });
@@ -41,33 +43,33 @@ export default function Simulator() {
 
   return (
     <>
-      <PageHeader title="Simulateur" description="Collez un extrait de DCE, de mémoire ou de code : vous voyez exactement ce que recevra le modèle, avec la configuration en vigueur." />
+      <PageHeader title={t("sim.title")} description={t("sim.description")} />
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader icon={<MessageSquare className="size-4" />} title="Texte d'origine" description="Reste sur votre poste." />
+          <CardHeader icon={<MessageSquare className="size-4" />} title={t("sim.source")} description={t("sim.sourceDesc")} />
           <Textarea rows={12} value={text} onChange={(e) => setText(e.target.value)} className="font-mono text-[13px] leading-relaxed" />
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
-              {([["document", "Document", FileText], ["user_text", "Prompt", MessageSquare]] as const).map(([k, l, Icon]) => (
+              {([["document", "sim.document", FileText], ["user_text", "sim.prompt", MessageSquare]] as const).map(([k, l, Icon]) => (
                 <button key={k} onClick={() => setScope(k)}
                   className={clsx("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium",
                     scope === k ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-700")}>
-                  <Icon className="size-3.5" /> {l}
+                  <Icon className="size-3.5" /> {t(l)}
                 </button>
               ))}
             </div>
             <Button variant="primary" icon={<Sparkles className="size-4" />} loading={m.isPending} onClick={() => m.mutate()} disabled={!text.trim()}>
-              Simuler l'envoi
+              {t("sim.run")}
             </Button>
           </div>
         </Card>
         <Card className="flex flex-col">
-          <CardHeader icon={<ArrowRight className="size-4" />} title="Ce que reçoit le modèle" description="Les jetons sont restitués en clair à votre retour, jamais côté Anthropic." />
+          <CardHeader icon={<ArrowRight className="size-4" />} title={t("sim.result")} description={t("sim.resultDesc")} />
           {m.error && <Alert>{m.error.message}</Alert>}
           {!m.data && !m.error && (
             <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 py-16 text-center">
               <FlaskConical className="mb-3 size-6 text-slate-300" />
-              <p className="text-sm text-slate-500">Lancez la simulation pour voir le résultat.</p>
+              <p className="text-sm text-slate-500">{t("sim.placeholder")}</p>
             </div>
           )}
           {m.data && (
@@ -76,7 +78,7 @@ export default function Simulator() {
                 <Highlighted text={m.data.text} />
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium text-slate-700">{m.data.detections.length} élément(s) masqué(s)</span>
+                <span className="text-sm font-medium text-slate-700">{t("sim.masked", { count: m.data.detections.length })}</span>
                 {counts.map(([t, n]) => (
                   <span key={t} className={clsx("rounded-md px-1.5 py-0.5 font-mono text-[11px] ring-1 ring-inset", typeColor(t))}>{t} × {n}</span>
                 ))}

@@ -4,6 +4,7 @@ import {
 } from "react";
 import clsx from "clsx";
 import { Loader2, X } from "lucide-react";
+import { useI18n } from "../i18n";
 
 // ------------------------------------------------------------------ Button
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "danger-ghost";
@@ -168,6 +169,7 @@ export function TagInput({ value, onChange, placeholder }: { value: string[]; on
 export function Modal({ open, onClose, title, description, children, footer, size = "md" }:
   { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children?: ReactNode; footer?: ReactNode; size?: "md" | "lg" }) {
   const ref = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -186,7 +188,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
             <h3 className="text-base font-semibold text-slate-900">{title}</h3>
             {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
           </div>
-          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label="Fermer">
+          <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label={t("common.close")}>
             <X className="size-4" />
           </button>
         </div>
@@ -202,6 +204,7 @@ type ConfirmOptions = { title: string; message: ReactNode; confirmLabel?: string
 const ConfirmContext = createContext<(o: ConfirmOptions) => Promise<boolean>>(async () => false);
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const [state, setState] = useState<(ConfirmOptions & { resolve: (v: boolean) => void }) | null>(null);
   const close = (v: boolean) => { state?.resolve(v); setState(null); };
   const confirm = (o: ConfirmOptions) => new Promise<boolean>((resolve) => setState({ ...o, resolve }));
@@ -210,9 +213,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       {children}
       <Modal open={!!state} onClose={() => close(false)} title={state?.title}
         footer={<>
-          <Button onClick={() => close(false)}>Annuler</Button>
+          <Button onClick={() => close(false)}>{t("common.cancel")}</Button>
           <Button data-autofocus variant={state?.tone === "primary" ? "primary" : "danger"} onClick={() => close(true)}>
-            {state?.confirmLabel ?? "Confirmer"}
+            {state?.confirmLabel ?? t("common.confirm")}
           </Button>
         </>}>
         <div className="text-sm text-slate-600">{state?.message}</div>
@@ -267,5 +270,6 @@ export function PageLoader() {
 }
 
 export function ErrorState({ error }: { error: unknown }) {
-  return <Alert title="Chargement impossible">{error instanceof Error ? error.message : String(error)}</Alert>;
+  const { t } = useI18n();
+  return <Alert title={t("common.loadError")}>{error instanceof Error ? error.message : String(error)}</Alert>;
 }

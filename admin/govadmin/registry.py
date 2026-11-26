@@ -42,8 +42,10 @@ def _trusted_info() -> dict:
     model = os.environ.get("TRUSTED_MODEL", "")
     host = urlparse(os.environ.get("TRUSTED_URL", "")).hostname or ""
     detail = " · ".join(x for x in (f"modèle {model}" if model else "", host) if x) or "Non configuré (TRUSTED_URL, TRUSTED_MODEL)"
+    # model/host/custom_name : champs bruts pour que la console compose le texte dans la langue choisie
     return {"name": name, "vendor": "Votre infrastructure", "detail": detail,
-            "hosting": "Fournisseur choisi par vous · seul autorisé sur le C3"}
+            "hosting": "Fournisseur choisi par vous · seul autorisé sur le C3",
+            "model": model, "host": host, "custom_name": bool(os.environ.get("TRUSTED_NAME"))}
 
 
 PROVIDERS = {

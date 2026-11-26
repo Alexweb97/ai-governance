@@ -7,21 +7,20 @@ import {
 } from "lucide-react";
 import { api, formatDate, type GovEvent } from "../lib/api";
 import { Alert, Badge, Card, EmptyState, ErrorState, PageHeader, PageLoader } from "../components/ui";
+import { describeProvider } from "../lib/provider";
+import { useI18n } from "../i18n";
+import type { Key } from "../i18n/en";
 
-const kindMeta: Record<GovEvent["kind"], { label: string; tone: "danger" | "warning" | "brand" | "neutral"; icon: typeof Ban }> = {
-  deny: { label: "Refusé", tone: "danger", icon: Ban },
-  ask: { label: "Confirmation", tone: "warning", icon: MessageCircleQuestion },
-  pseudo: { label: "Pseudonymisé", tone: "brand", icon: EyeOff },
-  config: { label: "Configuration", tone: "neutral", icon: RefreshCw },
-  c3: { label: "Accès C3", tone: "danger", icon: Lock },
+const kindMeta: Record<GovEvent["kind"], { label: Key; tone: "danger" | "warning" | "brand" | "neutral"; icon: typeof Ban }> = {
+  deny: { label: "kind.deny", tone: "danger", icon: Ban },
+  ask: { label: "kind.ask", tone: "warning", icon: MessageCircleQuestion },
+  pseudo: { label: "kind.pseudo", tone: "brand", icon: EyeOff },
+  config: { label: "kind.config", tone: "neutral", icon: RefreshCw },
+  c3: { label: "kind.c3", tone: "danger", icon: Lock },
 };
 
-const labels: Record<string, string> = {
-  deny: "Action refusée", block: "Prompt bloqué", ask: "Confirmation demandée", warn: "Données signalées",
-  pii_pseudonymized: "Requête pseudonymisée", request_blocked: "Requête bloquée",
-  config_reloaded: "Configuration rechargée", config_changed: "Configuration modifiée", settings_changed: "Réglage modifié (console)",
-  c3_blocked: "Envoi à Anthropic bloqué (C3)", pass: "Accès C3 autorisé (fournisseur de confiance)",
-};
+const EVENT_LABELS = new Set(["deny", "block", "ask", "warn", "pii_pseudonymized", "request_blocked", "config_reloaded",
+  "config_changed", "settings_changed", "c3_blocked", "pass"]);
 
 function StatCard({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: string; value: React.ReactNode; sub: React.ReactNode; tone: "ok" | "bad" | "neutral" }) {
   return (
@@ -38,6 +37,7 @@ function StatCard({ icon, label, value, sub, tone }: { icon: React.ReactNode; la
 }
 
 export default function Dashboard() {
+  const { t, r } = useI18n();
   const { data, error, isLoading, isFetching } = useQuery({ queryKey: ["status"], queryFn: api.status, refetchInterval: 10000 });
   const [filter, setFilter] = useState<GovEvent["kind"] | "all">("all");
   const [limit, setLimit] = useState(15);
@@ -51,48 +51,48 @@ export default function Dashboard() {
   if (isLoading) return <PageLoader />;
   if (error || !data) return <ErrorState error={error} />;
   const h = data.health;
+  const provider = describeProvider(data.provider.selected, data.provider, t);
+  const eventLabel = (l: string) => (EVENT_LABELS.has(l) ? t(`event.${l}` as Key) : l);
 
   return (
     <>
-      <PageHeader title="Tableau de bord" description="État de la protection et dernières décisions de la gouvernance."
+      <PageHeader title={t("dash.title")} description={t("dash.description")}
         actions={<a href={data.grafana_url} target="_blank" rel="noopener noreferrer"
           className="inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3.5 text-sm font-medium text-slate-700 shadow-xs ring-1 ring-slate-200 hover:bg-slate-50">
           Grafana <ExternalLink className="size-3.5" /></a>} />
 
       {!h.ok && (
-        <div className="mb-6"><Alert title="Le proxy ne répond pas" icon={<AlertTriangle className="size-4" />}>
-          Claude Code ne peut plus joindre l'API (fail-closed). Relancez la stack : <code className="rounded bg-rose-100 px-1">docker compose up -d</code>
+        <div className="mb-6"><Alert title={t("dash.proxyDown.title")} icon={<AlertTriangle className="size-4" />}>
+          {r("dash.proxyDown.body", undefined, "rounded bg-rose-100 px-1")}
         </Alert></div>
       )}
       {data.clients.undeclared.length > 0 && (
-        <div className="mb-6"><Alert tone="warning" title="Dossiers clients non déclarés" icon={<AlertTriangle className="size-4" />}>
+        <div className="mb-6"><Alert tone="warning" title={t("dash.undeclared.title")} icon={<AlertTriangle className="size-4" />}>
           {data.clients.undeclared.map((c, i) => <span key={c}>{i > 0 && ", "}<Link className="font-medium underline" to={`/clients/${c}`}>{c}</Link></span>)}
-          {" "}— leur nom n'est pas masqué.
+          {" "}{t("dash.undeclared.suffix")}
         </Alert></div>
       )}
 
       <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={<Server className="size-4" />} label="Proxy" tone={h.ok ? "ok" : "bad"}
-          value={h.ok ? "Opérationnel" : "En panne"} sub={h.ok ? "Pseudonymisation active" : h.error ?? "Injoignable"} />
-        <StatCard icon={<BrainCircuit className="size-4" />} label="Détection des noms" tone={h.presidio === "ok" ? "ok" : "bad"}
-          value={h.presidio === "ok" ? "Active" : "Indisponible"} sub="Presidio · NER français" />
-        <StatCard icon={<BookText className="size-4" />} label="Dictionnaire" tone="neutral"
-          value={`${h.terms ?? 0} termes`} sub={`${data.clients.declared} client(s) · ${data.clients.consultations} consultation(s)`} />
-        <StatCard icon={<Cpu className="size-4" />} label="Modèle d'IA"
+        <StatCard icon={<Server className="size-4" />} label={t("stat.proxy")} tone={h.ok ? "ok" : "bad"}
+          value={h.ok ? t("stat.proxyOk") : t("stat.proxyDown")} sub={h.ok ? t("stat.pseudoActive") : h.error ?? t("stat.unreachable")} />
+        <StatCard icon={<BrainCircuit className="size-4" />} label={t("stat.ner")} tone={h.presidio === "ok" ? "ok" : "bad"}
+          value={h.presidio === "ok" ? t("stat.nerActive") : t("stat.nerDown")} sub={t("stat.nerSub")} />
+        <StatCard icon={<BookText className="size-4" />} label={t("stat.dictionary")} tone="neutral"
+          value={t("stat.terms", { count: h.terms ?? 0 })} sub={t("stat.dictSub", { clients: data.clients.declared, tenders: data.clients.consultations })} />
+        <StatCard icon={<Cpu className="size-4" />} label={t("stat.model")}
           tone={data.provider.selected === "trusted" && h.trusted !== "ok" ? "bad" : "neutral"}
-          value={data.provider.name}
+          value={provider.name}
           sub={data.provider.selected === "trusted"
-            ? ({ ok: `${data.provider.detail} · joignable`, not_configured: "TRUSTED_URL ou TRUSTED_MODEL non défini",
-                 key_missing: "Clé TRUSTED_API_KEY absente", auth_error: "Clé refusée par le fournisseur",
-                 down: "Fournisseur injoignable" } as Record<string, string>)[h.trusted ?? ""] ?? data.provider.detail
-            : "Anthropic · abonnement Claude"} />
+            ? (h.trusted ? t(`trusted.${h.trusted}` as Key, { detail: provider.detail }) : provider.detail)
+            : t("stat.claudeSub")} />
       </div>
 
       <Card padded={false}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2">
             <Activity className="size-4 text-slate-400" />
-            <h2 className="text-[15px] font-semibold">Journal des décisions</h2>
+            <h2 className="text-[15px] font-semibold">{t("dash.log")}</h2>
             {isFetching && <RefreshCw className="size-3.5 animate-spin text-slate-300" />}
           </div>
           <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
@@ -100,15 +100,15 @@ export default function Dashboard() {
               <button key={k} onClick={() => { setFilter(k); setLimit(15); }}
                 className={clsx("rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                   filter === k ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-700")}>
-                {k === "all" ? "Tout" : kindMeta[k].label}
+                {k === "all" ? t("dash.all") : t(kindMeta[k].label)}
                 <span className="ml-1.5 text-slate-400">{k === "all" ? data.events.length : counts[k]}</span>
               </button>
             ))}
           </div>
         </div>
         {events.length === 0 ? (
-          <div className="p-6"><EmptyState icon={<Activity className="size-5" />} title="Aucun événement"
-            description="Les refus, confirmations et pseudonymisations apparaîtront ici dès votre prochaine session Claude Code." /></div>
+          <div className="p-6"><EmptyState icon={<Activity className="size-5" />} title={t("dash.empty.title")}
+            description={t("dash.empty.desc")} /></div>
         ) : (
           <ul className="divide-y divide-slate-100">
             {events.slice(0, limit).map((e, i) => {
@@ -124,9 +124,9 @@ export default function Dashboard() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium text-slate-900">{labels[e.label] ?? e.label}</p>
+                      <p className="text-sm font-medium text-slate-900">{eventLabel(e.label)}</p>
                       {e.tool && e.tool !== "proxy" && <Badge>{e.tool}</Badge>}
-                      {e.provider === "trusted" && <Badge tone="brand">Confiance</Badge>}
+                      {e.provider === "trusted" && <Badge tone="brand">{t("dash.trustedBadge")}</Badge>}
                       {e.model && <span className="text-xs text-slate-400">{e.model}</span>}
                     </div>
                     {Object.keys(e.counts).length > 0 ? (
@@ -146,7 +146,7 @@ export default function Dashboard() {
         {events.length > limit && (
           <div className="border-t border-slate-100 px-6 py-3 text-center">
             <button onClick={() => setLimit((l) => l + 30)} className="text-sm font-medium text-brand-600 hover:text-brand-700">
-              Afficher plus ({events.length - limit} restants)
+              {t("dash.showMore", { count: events.length - limit })}
             </button>
           </div>
         )}

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { CheckCircle2, AlertCircle, X } from "lucide-react";
 import clsx from "clsx";
+import { useI18n } from "../i18n";
 
 type Toast = { id: number; message: string; tone: "success" | "error" };
 const ToastContext = createContext<(message: string, tone?: Toast["tone"]) => void>(() => {});
@@ -13,6 +14,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((t) => [...t, { id, message, tone }]);
     setTimeout(() => dismiss(id), tone === "error" ? 6000 : 3500);
   }, []);
+  const { t: tr } = useI18n();
   return (
     <ToastContext.Provider value={push}>
       {children}
@@ -25,7 +27,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-rose-600" />
               : <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />}
             <p className="flex-1 text-sm text-slate-700">{t.message}</p>
-            <button onClick={() => dismiss(t.id)} className="text-slate-400 hover:text-slate-600" aria-label="Fermer">
+            <button onClick={() => dismiss(t.id)} className="text-slate-400 hover:text-slate-600" aria-label={tr("common.close")}>
               <X className="size-4" />
             </button>
           </div>

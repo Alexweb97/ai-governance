@@ -1,4 +1,5 @@
 // Accès à l'API de la console. Cookie de session (même origine) + en-tête anti-CSRF.
+import { getLang } from "../i18n";
 
 export type Level = "C2" | "C3";
 
@@ -39,7 +40,10 @@ export interface GovEvent {
 }
 export type ProviderId = "claude" | "trusted";
 export interface C3Session { id: string; short: string; cwd: string; opened: string; last: string; ended: string | null; accesses: number; open: boolean }
-export interface ProviderInfo { name: string; vendor: string; detail: string; hosting: string }
+export interface ProviderInfo {
+  name: string; vendor: string; detail: string; hosting: string;
+  model?: string; host?: string; custom_name?: boolean;  // fournisseur de confiance
+}
 export interface Status {
   health: { ok: boolean; proxy?: string; presidio?: string | null; redis?: string | null; terms?: number; error?: string;
     provider?: ProviderId; trusted?: "ok" | "not_configured" | "key_missing" | "auth_error" | "down" | null };
@@ -145,13 +149,14 @@ export const api = {
 };
 
 export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} Mo`;
+  const fr = getLang() === "fr";
+  if (bytes < 1024) return `${bytes} ${fr ? "o" : "B"}`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} ${fr ? "Ko" : "KB"}`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} ${fr ? "Mo" : "MB"}`;
 }
 
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return d.toLocaleString(getLang() === "fr" ? "fr-FR" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }

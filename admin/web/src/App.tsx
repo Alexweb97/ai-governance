@@ -18,7 +18,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { data, isLoading } = useQuery({ queryKey: ["session"], queryFn: api.session, staleTime: 60_000 });
   if (isLoading) return <div className="flex min-h-screen items-center justify-center"><Loader2 className="size-6 animate-spin text-slate-400" /></div>;
-  if (!data?.authenticated) return <Navigate to="/connexion" replace state={{ from: location.pathname }} />;
+  if (!data?.authenticated) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   return <>{children}</>;
 }
 
@@ -29,7 +29,7 @@ function UnauthorizedRedirect() {
   useEffect(() => {
     setUnauthorizedHandler(() => {
       qc.setQueryData(["session"], { authenticated: false });
-      navigate("/connexion", { replace: true, state: { from: location.pathname } });
+      navigate("/login", { replace: true, state: { from: location.pathname } });
     });
   }, [navigate, location.pathname, qc]);
   return null;
@@ -40,16 +40,21 @@ export default function App() {
     <BrowserRouter>
       <UnauthorizedRedirect />
       <Routes>
-        <Route path="/connexion" element={<Login />} />
+        <Route path="/login" element={<Login />} />
+        {/* anciennes adresses (console d'origine en français) */}
+        <Route path="/connexion" element={<Navigate to="/login" replace />} />
+        <Route path="/projets/*" element={<Navigate to="/projects" replace />} />
+        <Route path="/simulateur" element={<Navigate to="/simulator" replace />} />
+        <Route path="/reglages" element={<Navigate to="/settings" replace />} />
         <Route element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<Dashboard />} />
           <Route path="clients" element={<Clients />} />
           <Route path="clients/:code" element={<ClientDetail />} />
           <Route path="clients/:code/:ref" element={<Consultation />} />
-          <Route path="projets" element={<Projects />} />
-          <Route path="projets/:id" element={<ProjectDetail />} />
-          <Route path="simulateur" element={<Simulator />} />
-          <Route path="reglages" element={<Settings />} />
+          <Route path="projects" element={<Projects />} />
+          <Route path="projects/:id" element={<ProjectDetail />} />
+          <Route path="simulator" element={<Simulator />} />
+          <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

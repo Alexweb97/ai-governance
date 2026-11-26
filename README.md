@@ -196,13 +196,14 @@ safety net.
 ## Admin console
 
 Available at **http://localhost:8788** — a React (Vite, TypeScript, Tailwind) single-page app served by a
-FastAPI backend in the same container. Sign-in uses `ADMIN_PASSWORD` (HttpOnly session cookie, 12 h).
+FastAPI backend in the same container. The interface is available in **English** (default) and **French**; the language switch is in the
+sidebar and on the sign-in page, and the choice is remembered by the browser. Sign-in uses `ADMIN_PASSWORD` (HttpOnly session cookie, 12 h).
 
 | Screen | Purpose |
 |---|---|
 | **Dashboard** | Proxy and NER health, dictionary size, active model provider, filterable log of denials, confirmations and pseudonymizations |
 | **Clients** | Declare a client (neutral code such as `C001`, name, variants) — masked immediately. Flags folders without a declared client |
-| **Client › Engagement** | Create an engagement folder, drag-and-drop files as C2 or C3, move files between levels, copy the `cd … && claude` command |
+| **Client › Tender** | Create a tender folder, drag-and-drop files as C2 or C3, move files between levels, copy the `cd … && claude` command |
 | **Projects** | Register a code repository (mounted read-only), link it to a client, browse its tree and mark files or folders as C3 **in place** (no move, no rename), scan for dictionary terms, secret files, hard-coded credentials and sensitive path names |
 | **Simulator** | Paste text and see exactly what the model receives, with tokens highlighted by type |
 | **Settings** | Model provider; masked data types; NER scope and threshold; allowlist; ask/deny decisions for sensitive actions; personal-data tables; extra blocked web domains; change history (reduced protection is flagged) and reset to `policy.json` defaults. Secrets, sensitive paths, the C3 lock, forbidden commands and fail-closed are **deliberately not configurable** |
@@ -392,7 +393,7 @@ switching and the C3 lock.
 
 | Task | How |
 |---|---|
-| Add a client, engagement or files | Admin console |
+| Add a client, tender or files | Admin console |
 | Change an advanced rule | Edit `policy/policy.json`, then `./install.sh` (hooks); the proxy reloads it automatically |
 | Inspect the raw audit trail | `tail -f /var/log/claude-governance/*.jsonl \| jq` |
 | Proxy logs | `docker compose logs -f proxy` |

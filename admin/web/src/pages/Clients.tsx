@@ -4,9 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronRight, FolderKanban, Plus, Search } from "lucide-react";
 import { api } from "../lib/api";
 import { useToast } from "../lib/toast";
+import { useI18n } from "../i18n";
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, Modal, PageHeader, PageLoader, TagInput } from "../components/ui";
 
 function NewClientModal({ open, onClose, nextCode }: { open: boolean; onClose: () => void; nextCode: string }) {
+  const { t } = useI18n();
   const [code, setCode] = useState(nextCode);
   const [name, setName] = useState("");
   const [variants, setVariants] = useState<string[]>([]);
@@ -17,29 +19,29 @@ function NewClientModal({ open, onClose, nextCode }: { open: boolean; onClose: (
     mutationFn: () => api.createClient({ code, name, variants }),
     onSuccess: (r) => {
       qc.invalidateQueries();
-      toast(`Client ${r.code} créé : son nom est masqué dès maintenant`);
+      toast(t("clients.created", { code: r.code }));
       onClose();
       navigate(`/clients/${r.code}`);
     },
   });
   return (
-    <Modal open={open} onClose={onClose} size="lg" title="Nouveau client"
-      description="Le nom et ses variantes sont ajoutés au dictionnaire et remplacés par un jeton PII_CLIENT_… avant tout envoi."
+    <Modal open={open} onClose={onClose} size="lg" title={t("clients.new")}
+      description={t("clients.newDesc")}
       footer={<>
-        <Button onClick={onClose}>Annuler</Button>
-        <Button variant="primary" loading={m.isPending} onClick={() => m.mutate()} disabled={!code || name.trim().length < 2}>Créer le client</Button>
+        <Button onClick={onClose}>{t("common.cancel")}</Button>
+        <Button variant="primary" loading={m.isPending} onClick={() => m.mutate()} disabled={!code || name.trim().length < 2}>{t("clients.createBtn")}</Button>
       </>}>
       <div className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
-          <Field label="Code du dossier" hint="Neutre : il apparaît dans les chemins.">
+          <Field label={t("clients.code")} hint={t("clients.codeHint")}>
             <Input value={code} onChange={(e) => setCode(e.target.value)} className="font-mono" />
           </Field>
-          <Field label="Nom du client">
+          <Field label={t("clients.name")}>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="ACME Industries" />
           </Field>
         </div>
-        <Field label="Variantes" hint="Entrée pour ajouter. Sigles, versions sans accent, ancien nom, domaines (acme.fr), noms des interlocuteurs…">
-          <TagInput value={variants} onChange={setVariants} placeholder="ACME, Société ACME, acme.fr…" />
+        <Field label={t("clients.variants")} hint={t("clients.variantsHint")}>
+          <TagInput value={variants} onChange={setVariants} placeholder={t("clients.variantsPlaceholder")} />
         </Field>
         {m.error && <Alert>{m.error.message}</Alert>}
       </div>
@@ -48,6 +50,7 @@ function NewClientModal({ open, onClose, nextCode }: { open: boolean; onClose: (
 }
 
 export default function Clients() {
+  const { t } = useI18n();
   const { data, error, isLoading } = useQuery({ queryKey: ["clients"], queryFn: api.clients });
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -63,12 +66,12 @@ export default function Clients() {
 
   return (
     <>
-      <PageHeader title="Clients" description="Chaque client déclaré est masqué partout : prompts, documents lus, sorties de commandes."
-        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>Nouveau client</Button>} />
+      <PageHeader title={t("clients.title")} description={t("clients.description")}
+        actions={<Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>{t("clients.new")}</Button>} />
 
       {undeclared.length > 0 && (
-        <div className="mb-6"><Alert tone="warning" icon={<AlertTriangle className="size-4" />} title="Dossiers sans client déclaré">
-          {undeclared.map((c) => c.code).join(", ")} — ouvrez-les pour renseigner le nom, sinon il n'est pas masqué.
+        <div className="mb-6"><Alert tone="warning" icon={<AlertTriangle className="size-4" />} title={t("clients.undeclared.title")}>
+          {t("clients.undeclared.body", { codes: undeclared.map((c) => c.code).join(", ") })}
         </Alert></div>
       )}
 
@@ -76,21 +79,21 @@ export default function Clients() {
         <div className="border-b border-slate-100 p-4">
           <div className="relative max-w-sm">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un client, une variante…" className="pl-9" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("clients.search")} className="pl-9" />
           </div>
         </div>
         {filtered.length === 0 ? (
           <div className="p-6"><EmptyState icon={<FolderKanban className="size-5" />}
-            title={data.clients.length ? "Aucun résultat" : "Aucun client"}
-            description={data.clients.length ? undefined : "Déclarez votre premier client pour commencer à déposer des consultations."}
-            action={!data.clients.length && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>Nouveau client</Button>} /></div>
+            title={data.clients.length ? t("clients.noResults") : t("clients.none")}
+            description={data.clients.length ? undefined : t("clients.noneDesc")}
+            action={!data.clients.length && <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setOpen(true)}>{t("clients.new")}</Button>} /></div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs font-medium tracking-wide text-slate-500 uppercase">
-                <th className="px-6 py-3 font-medium">Client</th>
-                <th className="px-3 py-3 font-medium">Variantes masquées</th>
-                <th className="px-3 py-3 font-medium">Consultations</th>
+                <th className="px-6 py-3 font-medium">{t("common.client")}</th>
+                <th className="px-3 py-3 font-medium">{t("clients.col.variants")}</th>
+                <th className="px-3 py-3 font-medium">{t("clients.col.tenders")}</th>
                 <th className="px-6 py-3" />
               </tr>
             </thead>
@@ -103,7 +106,7 @@ export default function Clients() {
                         {c.code.slice(0, 4)}
                       </div>
                       <div>
-                        <p className="font-medium text-slate-900">{c.declared ? c.name : <Badge tone="danger" dot>Non déclaré</Badge>}</p>
+                        <p className="font-medium text-slate-900">{c.declared ? c.name : <Badge tone="danger" dot>{t("clients.notDeclared")}</Badge>}</p>
                         <p className="font-mono text-xs text-slate-500">{c.code}</p>
                       </div>
                     </Link>
@@ -112,7 +115,7 @@ export default function Clients() {
                     <div className="flex max-w-md flex-wrap gap-1">
                       {c.variants.slice(0, 4).map((v) => <span key={v} className="rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">{v}</span>)}
                       {c.variants.length > 4 && <span className="px-1 text-xs text-slate-400">+{c.variants.length - 4}</span>}
-                      {c.declared && c.variants.length === 0 && <Badge tone="warning">Aucune variante</Badge>}
+                      {c.declared && c.variants.length === 0 && <Badge tone="warning">{t("clients.noVariant")}</Badge>}
                     </div>
                   </td>
                   <td className="px-3 py-4 tabular-nums text-slate-600">{c.consultations.length}</td>
