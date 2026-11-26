@@ -82,29 +82,30 @@
     "sensitive_path_exceptions": [".env.example", ".env.sample", ".env.template", ".env.dist"],
 
     "read_media_extensions": [".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp"],
-    "read_media_reason": "Les PDF et images ne peuvent pas être pseudonymisés. Lisez le PDF en texte : pdftotext -layout <fichier> - (les données sensibles seront masquées par le proxy).",
+    "read_media_reason": "PDFs and images cannot be pseudonymized. Read the PDF as text: pdftotext -layout <file> - (sensitive data is masked by the proxy when the full stack is installed).",
+    "read_media_reason_fr": "Les PDF et images ne peuvent pas être pseudonymisés. Lisez le PDF en texte : pdftotext -layout <fichier> - (les données sensibles seront masquées par le proxy).",
 
     "bash_deny": [
-      { "regex": "\\brm\\s+(?:-\\S+\\s+)*[\"']?(?:/|~|\\$HOME|\\$\\{HOME\\})/?\\*?[\"']?(?:\\s|[;&|]|$)", "reason": "Suppression récursive de la racine ou du home" },
-      { "regex": "\\b(?:curl|wget)\\b[^|]*\\|\\s*(?:sudo\\s+)?(?:ba|z|da)?sh\\b", "reason": "Exécution d'un script téléchargé (curl | sh)" },
-      { "regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:nc|ncat|netcat|socat)\\b", "reason": "Outil réseau brut (risque d'exfiltration)" },
-      { "regex": "\\bgit\\s+push\\b.*(?:--force\\b|\\s-f\\b)", "reason": "git push --force interdit" },
-      { "regex": "\\bchmod\\s+(?:-R\\s+)?777\\b", "reason": "chmod 777 interdit" },
-      { "regex": "\\b(?:mkfs(?:\\.\\w+)?|fdisk|parted|wipefs)\\b", "reason": "Commande disque destructive" },
-      { "regex": "\\bdd\\b.*\\bof=/dev/", "reason": "Écriture directe sur un périphérique" },
-      { "regex": "\\bbase64\\b.*\\|\\s*(?:curl|wget)\\b", "reason": "Encodage + envoi réseau (exfiltration)" },
-      { "regex": "\\bhistory\\s+-c\\b|\\bunset\\s+HISTFILE\\b", "reason": "Effacement de traces" }
+      { "regex": "\\brm\\s+(?:-\\S+\\s+)*[\"']?(?:/|~|\\$HOME|\\$\\{HOME\\})/?\\*?[\"']?(?:\\s|[;&|]|$)", "reason": "Recursive deletion of the root or home directory", "reason_fr": "Suppression récursive de la racine ou du home" },
+      { "regex": "\\b(?:curl|wget)\\b[^|]*\\|\\s*(?:sudo\\s+)?(?:ba|z|da)?sh\\b", "reason": "Running a downloaded script (curl | sh)", "reason_fr": "Exécution d'un script téléchargé (curl | sh)" },
+      { "regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:nc|ncat|netcat|socat)\\b", "reason": "Raw network tool (exfiltration risk)", "reason_fr": "Outil réseau brut (risque d'exfiltration)" },
+      { "regex": "\\bgit\\s+push\\b.*(?:--force\\b|\\s-f\\b)", "reason": "git push --force is forbidden", "reason_fr": "git push --force interdit" },
+      { "regex": "\\bchmod\\s+(?:-R\\s+)?777\\b", "reason": "chmod 777 is forbidden", "reason_fr": "chmod 777 interdit" },
+      { "regex": "\\b(?:mkfs(?:\\.\\w+)?|fdisk|parted|wipefs)\\b", "reason": "Destructive disk command", "reason_fr": "Commande disque destructive" },
+      { "regex": "\\bdd\\b.*\\bof=/dev/", "reason": "Direct write to a device", "reason_fr": "Écriture directe sur un périphérique" },
+      { "regex": "\\bbase64\\b.*\\|\\s*(?:curl|wget)\\b", "reason": "Encoding + network send (exfiltration)", "reason_fr": "Encodage + envoi réseau (exfiltration)" },
+      { "regex": "\\bhistory\\s+-c\\b|\\bunset\\s+HISTFILE\\b", "reason": "Erasing traces", "reason_fr": "Effacement de traces" }
     ],
     "bash_ask": [
-      { "regex": "\\bgit\\s+push\\b", "reason": "Publication de code (git push)" },
-      { "regex": "\\b(?:terraform|tofu)\\s+(?:apply|destroy|import)\\b", "reason": "Modification d'infrastructure" },
-      { "regex": "\\bkubectl\\s+(?:apply|delete|scale|exec|patch|edit)\\b", "reason": "Action sur un cluster Kubernetes" },
-      { "regex": "\\bdocker\\s+(?:rm|rmi|system\\s+prune|volume\\s+rm)\\b", "reason": "Suppression de ressources Docker" },
-      { "regex": "\\bdbt\\s+(?:run|build|seed|snapshot)\\b.*--target\\s+prod", "reason": "dbt sur la cible prod" },
-      { "regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:curl|wget|https?|httpie|xh)\\b", "reason": "Appel réseau sortant" },
-      { "regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:scp|rsync|sftp)\\b", "reason": "Transfert de fichiers" },
-      { "regex": "(?:^|[;&|]\\s*)(?:printenv|env)\\s*(?:$|[;&|])", "reason": "Affichage des variables d'environnement (secrets possibles)" },
-      { "regex": "\\bsudo\\b", "reason": "Élévation de privilèges" }
+      { "regex": "\\bgit\\s+push\\b", "reason": "Publishing code (git push)", "reason_fr": "Publication de code (git push)" },
+      { "regex": "\\b(?:terraform|tofu)\\s+(?:apply|destroy|import)\\b", "reason": "Infrastructure change", "reason_fr": "Modification d'infrastructure" },
+      { "regex": "\\bkubectl\\s+(?:apply|delete|scale|exec|patch|edit)\\b", "reason": "Action on a Kubernetes cluster", "reason_fr": "Action sur un cluster Kubernetes" },
+      { "regex": "\\bdocker\\s+(?:rm|rmi|system\\s+prune|volume\\s+rm)\\b", "reason": "Deleting Docker resources", "reason_fr": "Suppression de ressources Docker" },
+      { "regex": "\\bdbt\\s+(?:run|build|seed|snapshot)\\b.*--target\\s+prod", "reason": "dbt on the prod target", "reason_fr": "dbt sur la cible prod" },
+      { "regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:curl|wget|https?|httpie|xh)\\b", "reason": "Outgoing network call", "reason_fr": "Appel réseau sortant" },
+      { "regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:scp|rsync|sftp)\\b", "reason": "File transfer", "reason_fr": "Transfert de fichiers" },
+      { "regex": "(?:^|[;&|]\\s*)(?:printenv|env)\\s*(?:$|[;&|])", "reason": "Printing environment variables (may contain secrets)", "reason_fr": "Affichage des variables d'environnement (secrets possibles)" },
+      { "regex": "\\bsudo\\b", "reason": "Privilege escalation", "reason_fr": "Élévation de privilèges" }
     ],
 
     "bash_network_regex": "(?:^|[\\n;&|(`'\"]\\s*|\\b(?:sudo|exec|xargs|nohup|time|env|command)\\s+(?:-\\S+\\s+)*)(?:\\S*/)?(?:curl|wget|https?|httpie|xh|nc|ncat|netcat|socat|ftp|telnet|mailx?|sendmail)\\b",
@@ -112,10 +113,10 @@
     "_comment_bash_network": "Commande réseau contenant une valeur sensible : secret -> deny, autre PII -> bash_network_pii_decision. Protège contre l'exfiltration de valeurs ré-identifiées par le proxy.",
 
     "sql_deny": [
-      { "regex": "(?i)\\bDROP\\s+(?:TABLE|DATABASE|SCHEMA|VIEW|INDEX)\\b", "reason": "DROP interdit" },
-      { "regex": "(?i)\\bTRUNCATE\\b", "reason": "TRUNCATE interdit" },
-      { "regex": "(?i)\\b(?:GRANT|REVOKE)\\b\\s+\\w", "reason": "Gestion des droits interdite" },
-      { "regex": "(?i)\\bALTER\\s+(?:USER|ROLE)\\b", "reason": "Modification de rôles interdite" }
+      { "regex": "(?i)\\bDROP\\s+(?:TABLE|DATABASE|SCHEMA|VIEW|INDEX)\\b", "reason": "DROP is forbidden", "reason_fr": "DROP interdit" },
+      { "regex": "(?i)\\bTRUNCATE\\b", "reason": "TRUNCATE is forbidden", "reason_fr": "TRUNCATE interdit" },
+      { "regex": "(?i)\\b(?:GRANT|REVOKE)\\b\\s+\\w", "reason": "Permission management is forbidden", "reason_fr": "Gestion des droits interdite" },
+      { "regex": "(?i)\\bALTER\\s+(?:USER|ROLE)\\b", "reason": "Role changes are forbidden", "reason_fr": "Modification de rôles interdite" }
     ],
     "sql_deny_dml_without_where": true,
     "pii_tables": ["customers", "clients", "client", "personnes", "persons", "users", "employees", "salaries", "employes", "patients", "contacts", "prospects"],
@@ -127,6 +128,8 @@
 
   "hooks": {
     "fail_mode": "closed",
+    "language": "en",
+    "_comment_language": "Language of the hook messages: en or fr. The CLAUDE_GOV_LANG environment variable overrides it.",
     "_comment": "closed : si un hook plante, l'action est refusée. open : elle passe (et l'erreur est journalisée)."
   },
 

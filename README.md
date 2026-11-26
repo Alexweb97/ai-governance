@@ -9,7 +9,7 @@ and every agent action is checked against a single, versioned policy. No externa
 ![FastAPI](https://img.shields.io/badge/FastAPI-proxy%20%26%20API-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-admin%20console-61DAFB?logo=react&logoColor=black)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-206%20passing-brightgreen)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 ---
@@ -18,6 +18,7 @@ and every agent action is checked against a single, versioned policy. No externa
 
 - [Why](#why)
 - [Use cases](#use-cases)
+- [GDPR & EU AI Act](#gdpr--eu-ai-act)
 - [Key features](#key-features)
 - [Architecture](#architecture)
 - [How pseudonymization works](#how-pseudonymization-works)
@@ -129,6 +130,45 @@ sent to Anthropic, even if resumed days later.
 | Network and web exfiltration blocked | ✅ | ✅ | ✅ | ✅ |
 | C3 content kept away from Anthropic, trusted provider only | ✅ | ✅ | ✅ | ✅ |
 | Audit, dashboard, Grafana | ✅ | ✅ | ✅ | ✅ |
+
+## GDPR & EU AI Act
+
+Organizations in the EU that let an AI agent work on client data have to answer two questions: *what personal
+data leaves for the model provider, and can we show that the agent stays under control?* AI Governance provides
+technical measures that support these obligations. It does not make an organization compliant on its own (see the
+note below).
+
+### GDPR
+
+| Requirement | How AI Governance supports it |
+|---|---|
+| **Data minimisation** — Art. 5(1)(c) | Personal data, secrets, client names and amounts are pseudonymized before anything is sent; PDFs and images that cannot be pseudonymized are never sent as-is; secret files are never read |
+| **Pseudonymization** — Art. 4(5) | The token → value table stays on the machine (in-memory, with a TTL); the model provider only receives keyed HMAC tokens |
+| **Data protection by design and by default** — Art. 25 | Protection is on by default, enforced by managed settings, and fails closed: if detection is unavailable, nothing is sent |
+| **Security of processing** — Art. 32 | Pseudonymization (explicitly cited in Art. 32(1)(a)), denial of access to credentials, exfiltration blocking, locked configuration |
+| **Transfers outside the EU** — Chapter V | C3 content is never sent to the default cloud provider and can be routed to a **trusted provider** you choose: a local model, an EU-hosted model, or your own infrastructure |
+| **Accountability** — Art. 5(2) | Audit trail of every decision and settings history, which store **types and fingerprints, never the personal data itself** |
+
+> Pseudonymized data is still personal data under the GDPR (Recital 26): pseudonymization reduces risk, it does
+> not take the processing out of scope. A legal basis, a record of processing activities, a data processing
+> agreement with the model provider and, where required, a DPIA remain necessary.
+
+### EU AI Act
+
+A coding agent such as Claude Code is generally not a *high-risk* system under the AI Act, and most obligations of the
+Act fall on providers of high-risk systems. AI Governance still lets a **deployer** apply the Act's core principles
+to its everyday use of AI agents — and they are the controls auditors and clients increasingly ask for:
+
+| Principle | How AI Governance supports it |
+|---|---|
+| **Human oversight** (the principle of Art. 14) | Impactful actions (`git push`, `terraform apply`, production `dbt`, queries on personal-data tables) wait for explicit human approval; destructive ones are denied outright |
+| **Record-keeping and logs** (the principle of Art. 12, Art. 26(6) for deployers) | Timestamped, structured JSONL audit trail of prompts (fingerprint only), tool calls and decisions, shipped to Loki / Grafana |
+| **AI literacy** — Art. 4 | Refusals explain *why* an action is unsafe and what the compliant alternative is; the simulator shows staff exactly what the model receives |
+| **Risk management and robustness** | Deterministic, versioned, tested guardrails (200+ tests) that run outside the model: a prompt injection cannot talk them out of a decision |
+
+> **Not legal advice.** Regulatory compliance depends on your organization, your processing activities and your
+> contracts. AI Governance is a set of technical and organizational measures you can document in your GDPR and AI
+> governance records; review them with your DPO or legal counsel.
 
 ## Key features
 
@@ -441,6 +481,7 @@ Main variables in your environment file (see `.env.example`):
 | `CLIENTS_DIR` | Root folder for client engagements |
 | `PROJECTS_DIR` | Root folder for code repositories (mounted read-only) |
 | `TRUSTED_*` | Optional trusted provider, see [Model providers](#model-providers) |
+| `CLAUDE_GOV_LANG` | Language of the guardrail messages shown in Claude Code: `en` (default) or `fr`. Set it in the `env` block of `claude/managed-settings.json`, or change `hooks.language` in `policy.json` |
 
 ### Verify
 
@@ -465,7 +506,7 @@ pip install pytest fastapi python-multipart httpx prometheus-client
 python -m pytest -q tests
 ```
 
-200 tests cover the detection engine, SSE streaming, hooks, console API, projects, settings, provider
+206 tests cover the detection engine, SSE streaming, hooks, console API, projects, settings, provider
 switching and the C3 lock.
 
 ---

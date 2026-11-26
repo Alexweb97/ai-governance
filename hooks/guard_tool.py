@@ -31,6 +31,7 @@ from fnmatch import fnmatch
 from typing import Any, Iterable, Optional
 from urllib.parse import urlparse
 
+from messages import policy_text, prefixed, rule_reason, set_language, t
 from common import (audit, c3_paths, detector, emit, fail_mode, load_policy, mark_c3_session, provider,
                     read_input, redact)
 
@@ -106,22 +107,22 @@ def check_network_pii(command: str, cfg: dict, policy: dict) -> Decision:
     if not types:
         return None
     if any(t.startswith("SECRET_") for t in types):
-        return "deny", f"Envoi réseau d'un secret ({', '.join(types)})", "bash_network_pii"
+        return "deny", t("network_secret", types=", ".join(types)), "bash_network_pii"
     return (cfg.get("bash_network_pii_decision", "ask"),
-            f"Envoi réseau de données personnelles ({', '.join(types)})", "bash_network_pii")
+            t("network_pii", types=", ".join(types)), "bash_network_pii")
 
 
 def check_sql(text: str, cfg: dict) -> Decision:
     for rule in cfg.get("sql_deny", []):
         if re.search(rule["regex"], text):
-            return "deny", rule["reason"], "sql_deny"
+            return "deny", rule_reason(rule), "sql_deny"
     if cfg.get("sql_deny_dml_without_where", True):
         for m in _DML_RE.finditer(text):
             stmt = m.group(0)
             # on s'arrête à la fin probable de la chaîne SQL dans une commande shell
             stmt = re.split(r"[\"'`]\s*(?:$|[|&;])", stmt)[0]
             if not re.search(r"(?i)\bWHERE\b", stmt):
-                return "deny", f"{m.group(1).split()[0].upper()} sans clause WHERE", "sql_dml_without_where"
+                return "deny", t("dml_without_where", verb=m.group(1).split()[0].upper()), "sql_dml_without_where"
     tables = cfg.get("pii_tables", [])
     if tables:
         names = "|".join(re.escape(t) for t in tables)
@@ -129,7 +130,7 @@ def check_sql(text: str, cfg: dict) -> Decision:
         m = re.search(pat, text)
         if m:
             return (cfg.get("pii_tables_decision", "ask"),
-                    f"Requête sur une table contenant des données personnelles ({m.group(0).split()[-1]})",
+                    t("pii_table", table=m.group(0).split()[-1]),
                     "pii_tables")
     return None
 
@@ -138,12 +139,12 @@ def check_sql(text: str, cfg: dict) -> Decision:
 def check_bash(command: str, cwd: str, cfg: dict, policy: dict) -> Decision:
     for rule in cfg.get("bash_deny", []):
         if re.search(rule["regex"], command):
-            return "deny", rule["reason"], "bash_deny"
+            return "deny", rule_reason(rule), "bash_deny"
     for p in _command_paths(command):
         for candidate in [p, *_glob_matches(p, cwd)]:
             pat = sensitive_path(candidate, cwd, cfg)
             if pat:
-                return "deny", f"Accès à un fichier sensible ({p} ~ {pat})", "sensitive_paths"
+                return "deny", t("sensitive_path_bash", path=p, pattern=pat), "sensitive_paths"
     net = check_network_pii(command, cfg, policy)
     if net:
         return net
@@ -152,7 +153,7 @@ def check_bash(command: str, cwd: str, cfg: dict, policy: dict) -> Decision:
         return sql
     for rule in cfg.get("bash_ask", []):
         if re.search(rule["regex"], command):
-            return "ask", rule["reason"], "bash_ask"
+            return "ask", rule_reason(rule), "bash_ask"
     return None
 
 
@@ -166,16 +167,16 @@ def evaluate(tool: str, tin: dict, cwd: str, policy: dict) -> Decision:
         path = tin.get("file_path") or tin.get("notebook_path") or ""
         pat = sensitive_path(path, cwd, cfg)
         if pat:
-            return "deny", f"Fichier sensible ({path} ~ {pat})", "sensitive_paths"
+            return "deny", t("sensitive_path", path=path, pattern=pat), "sensitive_paths"
         if tool == "Read" and path.lower().endswith(tuple(cfg.get("read_media_extensions", []))):
-            return "deny", cfg.get("read_media_reason", "Lecture de PDF/image interdite"), "read_media"
+            return "deny", policy_text(cfg, "read_media_reason", t("media")), "read_media"
         if tool in {"Write", "Edit", "MultiEdit", "NotebookEdit"}:
             written = "\n".join(_strings({k: v for k, v in tin.items()
                                           if k in ("content", "new_string", "edits", "new_source")}))
             secrets = sorted({s.type for s in detector(policy).detect(written) if s.type.startswith("SECRET_")})
             if secrets:
                 return (cfg.get("write_secret_decision", "ask"),
-                        f"Secret écrit en dur dans {os.path.basename(path)} ({', '.join(secrets)})",
+                        t("write_secret", file=os.path.basename(path), types=", ".join(secrets)),
                         "write_secret")
         return None
 
@@ -185,17 +186,17 @@ def evaluate(tool: str, tin: dict, cwd: str, policy: dict) -> Decision:
             if isinstance(v, str) and ("/" in v or v.startswith(".")):
                 pat = sensitive_path(v, cwd, cfg)
                 if pat:
-                    return "deny", f"Recherche dans un emplacement sensible ({v})", "sensitive_paths"
+                    return "deny", t("sensitive_search", path=v), "sensitive_paths"
         return None
 
     if tool == "WebFetch":
         host = (urlparse(tin.get("url", "")).hostname or "").lower()
         for d in cfg.get("web_deny_domains", []):
             if host == d or host.endswith("." + d):
-                return "deny", f"Domaine interdit ({host})", "web_deny_domains"
+                return "deny", t("web_domain", host=host), "web_deny_domains"
         types = sorted({s.type for s in detector(policy).detect(tin.get("url", ""))})
         if types:
-            return "deny", f"URL contenant des données sensibles ({', '.join(types)})", "web_url_pii"
+            return "deny", t("web_url_pii", types=", ".join(types)), "web_url_pii"
         return None
 
     if tool.startswith("mcp__"):
@@ -310,12 +311,6 @@ def c3_access(tool: str, tin: dict, cfg: dict, cwd: str = "") -> Optional[str]:
     return None
 
 
-C3_DENY_REASON = ("Contenu C3 (_confidentiel) : lisible uniquement quand le fournisseur de confiance "
-                  "est actif (console › Réglages › Modèle d'IA). Rien n'a été lu ni envoyé.")
-
-
-C3_UNKNOWN_REASON = ("Recherche récursive trop large pour vérifier qu'elle ne traverse aucun emplacement C3 : "
-                     "ciblez un sous-dossier du projet. Rien n'a été lu ni envoyé.")
 
 
 # ----------------------------------------------------------------------------- point d'entrée
@@ -334,6 +329,7 @@ def summarize(tool: str, tin: dict, policy: dict) -> str:
 
 def main() -> None:
     policy = load_policy()
+    set_language(policy)
     data = read_input()
     tool = data.get("tool_name", "")
     tin = data.get("tool_input") or {}
@@ -341,8 +337,8 @@ def main() -> None:
 
     c3 = c3_access(tool, tin, policy.get("tool_guard", {}), cwd)
     if c3 and provider() != "trusted":
-        result: Decision = (("deny", C3_DENY_REASON, "c3_requires_trusted") if c3 == "c3" else
-                            ("deny", C3_UNKNOWN_REASON, "c3_search_too_wide"))
+        result: Decision = (("deny", t("c3_denied"), "c3_requires_trusted") if c3 == "c3" else
+                            ("deny", t("c3_unknown"), "c3_search_too_wide"))
     else:
         if c3:
             mark_c3_session(data.get("session_id") or "inconnue", cwd)
@@ -366,7 +362,7 @@ def main() -> None:
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": decision,
-            "permissionDecisionReason": f"[Gouvernance] {reason}",
+            "permissionDecisionReason": prefixed(reason),
         }
     })
 
@@ -377,11 +373,15 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception as e:  # pragma: no cover
+        try:
+            set_language(load_policy())
+        except Exception:
+            pass
         if fail_mode(None) == "closed":
             emit({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": f"[Gouvernance] Erreur du hook (fail-closed) : {e}",
+                "permissionDecisionReason": prefixed(t("hook_error_closed", error=e)),
             }})
-        print(f"[Gouvernance] hook en erreur (fail-open) : {e}", file=sys.stderr)
+        print(prefixed(t("hook_error_open", error=e)), file=sys.stderr)
         sys.exit(1)

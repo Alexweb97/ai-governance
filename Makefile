@@ -46,7 +46,7 @@ test: ## Lance les tests pytest
 
 hooks: ## Redéploie hooks + politique dans /opt/claude-governance (sans toucher à Docker)
 	sudo install -d -m 755 $(PREFIX)/hooks $(PREFIX)/policy
-	sudo install -m 644 proxy/app/pii.py hooks/common.py $(PREFIX)/hooks/
+	sudo install -m 644 proxy/app/pii.py hooks/common.py hooks/messages.py $(PREFIX)/hooks/
 	sudo install -m 755 hooks/guard_prompt.py hooks/guard_tool.py hooks/audit.py hooks/statusline.py $(PREFIX)/hooks/
 	sudo install -m 644 policy/policy.json $(PREFIX)/policy/policy.json
 

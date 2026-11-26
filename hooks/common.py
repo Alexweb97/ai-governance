@@ -137,7 +137,8 @@ def audit(policy: dict, record: dict) -> None:
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError as e:
-        print(f"[gouvernance] audit impossible ({path}) : {e}", file=sys.stderr)
+        from messages import prefixed, t
+        print(prefixed(t("audit_write_error", path=path, error=e)), file=sys.stderr)
 
 
 def emit(obj: dict) -> None:

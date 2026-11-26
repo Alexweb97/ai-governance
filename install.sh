@@ -69,6 +69,7 @@ info "Installation des hooks et de la politique dans $PREFIX (propriétaire root
 sudo install -d -m 755 "$PREFIX/hooks" "$PREFIX/policy"
 sudo install -m 644 "$REPO/proxy/app/pii.py" "$PREFIX/hooks/pii.py"
 sudo install -m 644 "$REPO/hooks/common.py" "$PREFIX/hooks/common.py"
+sudo install -m 644 "$REPO/hooks/messages.py" "$PREFIX/hooks/messages.py"
 for h in guard_prompt guard_tool audit statusline; do
   sudo install -m 755 "$REPO/hooks/$h.py" "$PREFIX/hooks/$h.py"
 done

@@ -38,4 +38,4 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:  # la ligne d'état ne doit jamais gêner
-        print("🛡 Gouvernance")
+        print("🛡 Governance")

@@ -190,7 +190,7 @@ C3_CASES = [
 def test_c3_denied_with_claude(tool, tin, tmp_path):
     _, out, cfg = _hook("guard_tool.py", {"session_id": "s1", "cwd": "/home/u/clients/C1/AO/travail",
                                           "tool_name": tool, "tool_input": tin}, tmp_path, provider="claude")
-    assert decision(out) == "deny" and "fournisseur de confiance" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert decision(out) == "deny" and "trusted provider" in out["hookSpecificOutput"]["permissionDecisionReason"]
     assert not (cfg / "c3-sessions.json").exists()
 
 
@@ -227,3 +227,44 @@ def test_trusted_label_shown_in_statusline_and_session_start(tmp_path):
     assert "Mon LLM" in r.stdout and "C3 lisible" in r.stdout
     _, out, _ = _hook("audit.py", {"hook_event_name": "SessionStart", "session_id": "s"}, tmp_path)
     assert "Mon LLM" in out["systemMessage"]
+
+
+# ------------------------------------------------------------------ langue des messages
+def _deny_reason(tmp_path, monkeypatch, lang):
+    if lang:
+        monkeypatch.setenv("CLAUDE_GOV_LANG", lang)
+    else:
+        monkeypatch.delenv("CLAUDE_GOV_LANG", raising=False)
+    _, out, _ = run("guard_tool.py", {"tool_name": "Bash", "tool_input": {"command": "chmod 777 app"}, "cwd": "/tmp"},
+                    tmp_path)
+    return out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_messages_english_by_default(tmp_path, monkeypatch):
+    assert _deny_reason(tmp_path, monkeypatch, None) == "[Governance] chmod 777 is forbidden"
+
+
+def test_messages_in_french_on_request(tmp_path, monkeypatch):
+    assert _deny_reason(tmp_path, monkeypatch, "fr") == "[Gouvernance] chmod 777 interdit"
+
+
+def test_prompt_block_message_localized(tmp_path, monkeypatch):
+    key = "AK" + "IA" + "Q7RZ" * 4
+    monkeypatch.setenv("CLAUDE_GOV_LANG", "fr")
+    _, out, _ = run("guard_prompt.py", {"prompt": f"clé {key}"}, tmp_path)
+    assert out["reason"].startswith("[Gouvernance] Prompt bloqué")
+    monkeypatch.setenv("CLAUDE_GOV_LANG", "en")
+    _, out, _ = run("guard_prompt.py", {"prompt": f"key {key}"}, tmp_path)
+    assert out["reason"].startswith("[Governance] Prompt blocked") and key not in out["reason"]
+
+
+def test_every_policy_rule_has_both_languages():
+    tg = json.loads((ROOT / "policy" / "policy.json").read_text())["tool_guard"]
+    for key in ("bash_deny", "bash_ask", "sql_deny"):
+        for rule in tg[key]:
+            assert rule["reason"] and rule["reason_fr"] and rule["reason"] != rule["reason_fr"]
+    from importlib import util
+    spec = util.spec_from_file_location("messages", HOOKS / "messages.py")
+    msgs = util.module_from_spec(spec)
+    spec.loader.exec_module(msgs)
+    assert set(msgs.MESSAGES["en"]) == set(msgs.MESSAGES["fr"])

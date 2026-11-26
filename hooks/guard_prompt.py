@@ -12,11 +12,13 @@ import sys
 from collections import Counter
 from fnmatch import fnmatch
 
+from messages import prefixed, set_language, t
 from common import audit, detector, emit, fail_mode, load_policy, read_input, sha
 
 
 def main() -> None:
     policy = load_policy()
+    set_language(policy)
     data = read_input()
     prompt = data.get("prompt", "") or ""
     cfg = policy.get("prompt_guard", {})
@@ -44,20 +46,13 @@ def main() -> None:
                        "reason": ",".join(blocked)})
         emit({
             "decision": "block",
-            "reason": (
-                "[Gouvernance] Prompt bloqué : il contient des données interdites "
-                f"({', '.join(blocked)}). Retirez-les (ou référencez-les via une variable "
-                "d'environnement / un fichier ignoré) puis renvoyez le prompt."
-            ),
+            "reason": prefixed(t("prompt_blocked", types=", ".join(blocked))),
         })
 
     audit(policy, {**record, "decision": "warn" if warned else "allow"})
     if warned:
         emit({
-            "systemMessage": (
-                f"[Gouvernance] Données personnelles détectées ({', '.join(warned)}) : "
-                "elles seront pseudonymisées par le proxy avant envoi."
-            )
+            "systemMessage": prefixed(t("prompt_warn_proxy", types=", ".join(warned)))
         })
     sys.exit(0)
 
@@ -69,7 +64,7 @@ if __name__ == "__main__":
         raise
     except Exception as e:  # pragma: no cover
         if fail_mode(None) == "closed":
-            print(f"[Gouvernance] Erreur du hook de contrôle des prompts : {e}", file=sys.stderr)
+            print(prefixed(t("prompt_error", error=e)), file=sys.stderr)
             sys.exit(2)  # code 2 = bloquant pour UserPromptSubmit
-        print(f"[Gouvernance] hook en erreur (fail-open) : {e}", file=sys.stderr)
+        print(prefixed(t("hook_error_open", error=e)), file=sys.stderr)
         sys.exit(1)

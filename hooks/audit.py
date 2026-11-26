@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys
 
+from messages import prefixed, set_language, t
 from common import audit, emit, end_c3_session, load_policy, provider, provider_label, read_input
 
 KEEP = ("session_id", "cwd", "permission_mode", "tool_name", "source", "reason",
@@ -18,6 +19,7 @@ KEEP = ("session_id", "cwd", "permission_mode", "tool_name", "source", "reason",
 
 def main() -> None:
     policy = load_policy()
+    set_language(policy)
     data = read_input()
     event = data.get("hook_event_name", "unknown")
     rec = {"event": event}
@@ -36,16 +38,14 @@ def main() -> None:
     if event == "SessionStart":
         # L'en-tête de Claude Code affiche le compte Claude même quand le proxy redirige ailleurs.
         if provider() == "trusted":
-            emit({"systemMessage": f"[Gouvernance] Modèle réellement utilisé : {provider_label()}. "
-                                   "L'en-tête « Claude » de Claude Code n'en tient pas compte. "
-                                   "Dossiers C3 lisibles : cette session sera verrouillée s'ils sont lus."})
+            emit({"systemMessage": prefixed(t("session_trusted", label=provider_label()))})
         else:
-            emit({"systemMessage": "[Gouvernance] Modèle utilisé : Claude (Anthropic). Dossiers C3 verrouillés."})
+            emit({"systemMessage": prefixed(t("session_claude"))})
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:  # l'audit ne doit jamais bloquer Claude Code
-        print(f"[Gouvernance] audit en erreur : {e}", file=sys.stderr)
+        print(prefixed(t("audit_error", error=e)), file=sys.stderr)
     sys.exit(0)
